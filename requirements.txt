@@ -1,0 +1,34 @@
+# Core Shiny Framework
+shiny>=1.0.0
+htmltools>=0.5.0
+shinyswatch>=0.4.0  # Bootstrap themes
+shinywidgets>=0.3.0
+
+# Network Analysis
+networkx>=3.0
+igraph>=0.11.0
+
+# Network Visualization
+pyvis>=0.3.2
+
+# Data Processing
+pandas>=2.0.0
+numpy>=1.24.0
+
+# Scientific Computing
+scipy>=1.10.0
+
+# Data Tables
+great-tables>=0.1.0
+
+# File I/O
+openpyxl>=3.1.0  # For Excel files
+xlrd>=2.0.0      # For older Excel files
+
+# Plotting
+matplotlib>=3.7.0
+seaborn>=0.12.0
+plotly>=5.14.0
+
+# UI Components
+shinywidgets>=0.3.0

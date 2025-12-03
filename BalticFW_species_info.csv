@@ -1,0 +1,35 @@
+"species","fg","nbY","meanB","taxon","met.types","org.type","bodymasses","losses","efficiencies"
+"Synchaeta","Zooplankton",37,3.25091177885131,"Rotifera","invertebrates","animal",6e-06,1.51180324476666e-09,0.906
+"Autotroph","Phytoplankton",37,31.3992798910811,"Plankton","invertebrates","plant",5.4e-09,1.03993801660714e-11,0.77
+"Mixotroph","Phytoplankton",36,0.31977966966967,"Plankton","invertebrates","plant",1.46e-08,2.10716436398048e-11,0.77
+"Heterotroph","Phytoplankton",37,0.601356132561133,"Plankton","invertebrates","plant",1.19e-08,1.8224105796071e-11,0.77
+"Keratella","Zooplankton",23,0.0456127741485509,"Rotifera","invertebrates","animal",1e-06,4.236506580785e-10,0.906
+"Acartia","Zooplankton",38,2.8397984463717,"Copepoda","invertebrates","animal",1e-05,2.17274062830991e-09,0.906
+"Evadne","Zooplankton",31,0.210307437412788,"Branchiopoda","invertebrates","animal",4.4e-05,6.22098688343593e-09,0.906
+"Limecola balthica","Benthos",12,0.93737517162069,"Bivalvia","invertebrates","animal",0.02,4.79445428809458e-07,0.906
+"Eurytemora affinis","Zooplankton",38,2.75055166857863,"Copepoda","invertebrates","animal",1.7e-05,3.16684362924106e-09,0.906
+"Limnocalanus macrurus","Zooplankton",36,1.18643632115488,"Copepoda","invertebrates","animal",0.000211,1.89342640189874e-08,0.906
+"Podon/pleopis","Zooplankton",13,0.0831005575713802,"Cladocera","invertebrates","animal",6.2e-05,7.93607904624516e-09,0.906
+"Gasterosteus aculeatus","Fish",26,0.000935755031453063,"Actinopterygii","ectotherm vertebrates","animal",2.1,4.79034079441561e-05,0.906
+"Osmerus eperlanus","Fish",32,0.127143643362355,"Actinopterygii","ectotherm vertebrates","animal",50.5,0.000458065507309955,0.906
+"Pomatoschistus","Fish",22,0.000289148408135957,"Actinopterygii","invertebrates","animal",0.5,4.7127737251053e-06,0.906
+"Bosmina","Zooplankton",35,0.0873233604036456,"Branchiopoda","invertebrates","animal",3.4e-05,5.18033584697372e-09,0.906
+"Cyclopoida","Zooplankton",33,0.0897574855881542,"Copepoda","invertebrates","animal",1.1e-05,2.32485939211801e-09,0.906
+"Monoporeia affinis","Benthos",25,7.10971118413793,"Amphipoda","invertebrates","animal",0.002,9.34844080242802e-08,0.906
+"Pontoporeia femorata","Benthos",13,0.362135561034483,"Amphipoda","invertebrates","animal",0.018,4.44888688733429e-07,0.906
+"Coregonus","Fish",6,0.0068375,"Actinopterygii","ectotherm vertebrates","animal",727.2,0.00304344150962566,0.906
+"Detritus","Detritus",38,1,"Other","Other","Detritus",1,2.69259869565945e-13,0.4
+"Oligochaeta","Benthos",14,0.017485090862069,"Annelida","invertebrates","animal",0.002,9.34844080242802e-08,0.906
+"Neogobius melanostomus","Fish",2,4.77083333333333e-05,"Actinopterygii","ectotherm vertebrates","animal",50,0.000454840800194015,0.906
+"Clupea harengus","Fish",38,5.21554613721053,"Actinopterygii","ectotherm vertebrates","animal",16.6,0.00020790620653783,0.906
+"Gadus morhua","Fish",13,0.0842488628123087,"Actinopterygii","ectotherm vertebrates","animal",3000,0.008324282352421,0.906
+"Saduria entomon","Benthos",17,10.6020462980345,"Isopoda","invertebrates","animal",0.79,6.52113393604307e-06,0.906
+"Sprattus sprattus","Fish",26,0.0257989079290119,"Actinopterygii","ectotherm vertebrates","animal",8.8,0.000132487043593032,0.906
+"Zoarces viviparus","Fish",31,0.182825247824927,"Actinopterygii","ectotherm vertebrates","animal",61.5,0.000526856137974775,0.906
+"Sander lucioperca","Fish",23,0.0126147517730417,"Actinopterygii","ectotherm vertebrates","animal",1605,0.00533922211202875,0.906
+"Myoxocephalus scorpius","Fish",16,0.00537327152014652,"Actinopterygii","ectotherm vertebrates","animal",182.7,0.00114136639207202,0.906
+"Platichthys flesus","Fish",21,0.00219139814701563,"Actinopterygii","ectotherm vertebrates","animal",191.8,0.00118144421431323,0.906
+"Liparis liparis","Fish",17,0.000731143945989583,"Actinopterygii","ectotherm vertebrates","animal",50,0.000454840800194015,0.906
+"Marenzelleria","Benthos",12,1.5598271047931,"Polychaeta","invertebrates","animal",0.009,2.7196941496755e-07,0.906
+"Gymnocephalus cernua","Fish",12,0.00312866520372917,"Actinopterygii","ectotherm vertebrates","animal",51,0.000461280968473131,0.906
+"Myoxocephalus quadricornis","Fish",25,0.0165349917341526,"Actinopterygii","ectotherm vertebrates","animal",219.9,0.00130187900905301,0.906

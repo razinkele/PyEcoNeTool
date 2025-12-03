@@ -1,0 +1,22 @@
+# R and RStudio files
+.Rhistory
+.RData
+.Rproj.user/
+*.Rproj
+
+# Shiny specific
+rsconnect/
+
+# Data files (optional - uncomment if you don't want to track large data files)
+# *.Rdata
+# *.rda
+
+# System files
+.DS_Store
+Thumbs.db
+.Rproj.user
+
+# Temporary files
+*~
+*.swp
+*.swo
