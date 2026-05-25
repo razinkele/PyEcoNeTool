@@ -43,7 +43,9 @@ ui.tags.iframe(src=/<file>.html)        <iframe srcdoc="..."> (generated in-memo
 Browser fetches static file              Browser receives HTML inline
 ```
 
-`render_network()` (defined at `pyvis/shiny/wrapper.py:214` in the installed fork) deep-copies the Network, forces `cdn_resources=CDN_INLINE` so vis.js gets embedded inside the srcdoc, calls `generate_html()`, and returns `ui.tags.iframe(srcdoc=...)`.
+`render_network()` (defined at `pyvis/shiny/wrapper.py:214` in the installed fork) **conditionally** deep-copies the Network and forces `cdn_resources=CDN_INLINE` *only when* the network was constructed with `CDN_LOCAL` (the branch at `wrapper.py:260-264`). Networks built with `CDN_INLINE` or `CDN_REMOTE` are passed through to `generate_html()` directly without modification. It returns `ui.tags.iframe(srcdoc=...)`.
+
+The current builders in `network_viz.py` (`create_topology_network()` at line 56, `create_flux_network()` at line 196) use the default `cdn_resources="local"`, so the conditional override triggers in every current render. **However**, this is fragile: a future refactor that passes `cdn_resources="remote"` in `Network(...)` would silently produce iframes that reference `https://unpkg.com/vis-network@...`, which fail to a blank iframe in offline / firewalled environments with no Python-side exception. The Risks table covers the mitigation.
 
 The Shiny reactive graph is unchanged: both render sites already use `@render.ui` returning a `ui.Tag`, and `render_network()` returns the same.
 
@@ -65,8 +67,8 @@ The Shiny reactive graph is unchanged: both render sites already use `@render.ui
 |---|---|---|
 | Add import | top imports | `from pyvis.shiny import render_network` |
 | Remove from import | `from network_viz import (...)` | Drop `save_network_html` from the list |
-| Rewrite render site 1 | ~lines 738-748 (Network tab) | Replace 8-line filename/save/iframe block with `return render_network(net, height=f"{height}px", width="100%")` |
-| Rewrite render site 2 | ~lines 1024-1034 (Energy Fluxes tab) | Same pattern, fixed height `"600px"` |
+| Rewrite render site 1 | lines 738-748 (Network tab; the `filename`/`www_path`/`save_network_html`/`iframe` block — Network construction at 712-737 is untouched) | Replace with `return render_network(net, height=f"{height}px", width="100%")` |
+| Rewrite render site 2 | lines 1024-1035 (Energy Fluxes tab; the `filename`/`www_path`/`save_network_html`/`iframe` block — Network construction at 1014-1023 is untouched) | Same pattern, fixed height `"600px"` |
 | Update stale comment | both sites | Delete `# Use iframe to display the network (static_assets serves from root)` |
 | Leave alone | line 1186: `app = App(app_ui, server, static_assets=www_dir)` | `www/img/` and any other static assets still need serving; keep `www_dir.mkdir(exist_ok=True)` for the same reason |
 
@@ -97,7 +99,8 @@ name: shiny
 channels:
   - conda-forge
 dependencies:
-  - python>=3.13
+  - python=3.13.*
+  - git                          # required so pip can fetch the pyvis fork via git+https
   - shiny>=1.0.0
   - htmltools>=0.5.0
   - shinyswatch>=0.4.0
@@ -117,7 +120,19 @@ dependencies:
     - pyvis @ git+https://github.com/razinkele/pyvis.git@v4.2
 ```
 
-Exact version pins to be filled in at implementation time from the actual env export.
+Exact version pins to be filled in at implementation time from the actual env export. `git` is listed explicitly because `pip` invoked inside the env needs a `git` binary on PATH to resolve the `git+https` URL — the current `shiny` env has no `git` package, so a fresh `micromamba env create` would otherwise fail at the pip step.
+
+**How to apply this file:**
+
+```bash
+# update the existing env in place (recommended for current users):
+micromamba env update -n shiny -f environment.yml --prune
+
+# OR recreate fresh under a different name (clean install for new contributors):
+micromamba create -n shiny-fresh -f environment.yml
+```
+
+Running `micromamba env create -f environment.yml` against the existing `shiny` env errors with "prefix already exists" — use one of the two forms above.
 
 ### `.gitignore`
 
@@ -151,7 +166,7 @@ Single reactive render → returns `ui.Tag` (iframe with srcdoc embedding the fu
 
 **Side-effect removal:** the old code wrote a fresh HTML file to `www/` on every render. With reactives firing on input changes (network type switch, dataset changes, slider adjustments), that meant per-interaction disk churn. After this change: zero disk writes during rendering.
 
-**Payload size:** vis.js (~600 KB minified) is embedded inline in the srcdoc on every render. For a single network view this is acceptable. If a future profile shows this dominates response time, the fix is to switch `cdn_resources` from `CDN_INLINE` to `CDN_REMOTE` (loads vis.js from CDN, much smaller payload, but requires internet). The fork's `render_network` currently forces `CDN_INLINE` for iframe compatibility; a flag could be added upstream later.
+**Payload size:** vis.js (~418 KB JS + ~215 KB CSS ≈ 633 KB inlined per render — measured against `pyvis/templates/lib/vis-10.0.2/`) is embedded inline in the srcdoc on every reactive render. For a single network view this is acceptable; the srcdoc HTML passes through Shiny's UI patch over websocket on every render, so heavy slider drags will move ~633 KB per tick. If profiling shows this dominates response time, the fix is to construct `Network(..., cdn_resources="remote")` and let vis.js load from CDN — but that requires internet at runtime. The fork's `render_network` only overrides `cdn_resources` to `CDN_INLINE` when the source network used `CDN_LOCAL` (see Architecture section); other values pass through unchanged, which is how a `CDN_REMOTE` opt-in would work.
 
 ## Testing
 
@@ -187,9 +202,12 @@ Expected: `41 passed`.
 |---|---|---|---|
 | `srcdoc` HTML-encoding breaks special characters in tooltips | Low | Tooltip text garbled | Tooltips already use HTML in `title=` attr; srcdoc uses identical HTML. Smoke test covers it. |
 | `CDN_INLINE` bloats response payload | Medium-Low | Slower first paint | ~600 KB per network render. Acceptable for analytical app. Switch to `CDN_REMOTE` if profiling shows it matters. |
+| Future builder change passes `cdn_resources="remote"` → silent blank iframe offline | Low (now) / Medium (over time) | Blank iframe, no error | `render_network`'s conditional `CDN_LOCAL → CDN_INLINE` override only triggers for the default. Either (a) pass `cdn_resources="in_line"` explicitly in both `Network(...)` constructions in `network_viz.py` so behaviour is unconditional, or (b) add a code comment near each `Network(...)` warning against switching to `"remote"`. Deferred to implementation plan; spec flags as known fragility. |
 | Unknown caller relies on `save_network_html` | Low | Import error at runtime | Grep confirms only 2 call sites, both in `app.py` and both being rewritten. |
-| `environment.yml` drifts from `requirements.txt` | Medium | Confused contributors | Treat `environment.yml` as canonical for conda users; `requirements.txt` for pip users. Both must be updated together when deps change. Document this in the file headers. |
+| `environment.yml` drifts from `requirements.txt` | Medium | Confused contributors | Treat `environment.yml` as canonical for conda users; `requirements.txt` for pip users. Both must be updated together when deps change. Document this in the file headers. Long-term: consolidate to a single source of truth (deferred to a follow-up). |
 | Fork tag `v4.2` is force-pushed | Low | Silent behaviour change in fresh installs | Mitigated by tagging discipline on the fork. If this becomes a concern, switch to commit SHA in the pin. |
+| Pip-from-git install fails for missing `git` binary inside the env | Was HIGH; now mitigated | `micromamba env create` errors at the pip step | `environment.yml` lists `- git` under conda deps so a fresh env recreation has `git` on PATH before pip runs. Verified the current `shiny` env had no `git` package. |
+| Conda→pip provenance switch drops static assets (`templates/`, `shiny/bindings.js`) if fork's `pyproject.toml` lacks `include_package_data` / `MANIFEST.in` | Unknown (fork packaging not verified) | `render_network` raises Jinja `TemplateNotFound` at first render | Acceptance criterion 10 enforces a scratch-env install check that asserts the files exist. If the check fails, fix is at the fork repo — pin must not land until corrected. |
 
 ## Rollback
 
@@ -200,16 +218,26 @@ Single revert commit. No data migrations, no schema changes, no state to clean u
 1. `git grep save_network_html` returns no results
 2. `git grep create_temp_network_html` returns no results
 3. `requirements.txt` has `pyvis @ git+https://github.com/razinkele/pyvis.git@v4.2` (no PyPI `pyvis>=0.3.2` line)
-4. `environment.yml` exists and lists the pyvis fork under `pip:`
+4. `environment.yml` exists, includes `- git` under conda dependencies, and lists the pyvis fork under `pip:`
 5. `.gitignore` covers `__pycache__/`, per-render `www/*.html` files, `temp_*.html`, `test_network.html`
 6. `pytest test_flux_calculations.py test_network_analysis.py` → 41 passed
 7. Manual smoke checklist (steps 1-8 above) all green
 8. No new files appear in `www/` during normal app interaction
+9. `network_viz.py` no longer contains `import tempfile` or `import os` (orphaned by the deleted functions)
+10. **Static-asset shipping check** — in a scratch env, after `pip install "pyvis @ git+https://github.com/razinkele/pyvis.git@v4.2"`, the following must exit 0:
+    ```bash
+    python -c "import pyvis, pathlib; p = pathlib.Path(pyvis.__file__).parent; \
+      assert (p / 'templates' / 'template.html').exists(), 'template.html missing'; \
+      assert (p / 'shiny' / 'bindings.js').exists(), 'bindings.js missing'; \
+      import glob; \
+      assert glob.glob(str(p / 'templates' / 'lib' / 'vis-*' / 'vis-network.min.js')), 'vis-network.min.js missing'"
+    ```
+    The current installation came from `conda-build` which packages these directories correctly. After switching to `pip install` from a git URL, the same assets must still ship — they will only do so if the fork's `pyproject.toml` / `setup.py` declares `include_package_data=True` with a `MANIFEST.in`, OR uses `[tool.setuptools.package-data]` to explicitly include `pyvis/templates/**` and `pyvis/shiny/*.js`/`*.css`. If this check fails, the fix is at the fork repository (not in this project), and the pin in `requirements.txt` must not land until the fork is updated.
 
 ## References
 
 - Installed fork: `C:\Users\arturas.baziukas\micromamba\envs\shiny\Lib\site-packages\pyvis`
 - Fork repo: https://github.com/razinkele/pyvis (tag `v4.2`)
-- Render function: `pyvis/shiny/wrapper.py:214` (`render_network`)
-- Current render sites: `app.py:712-748` (Network tab), `app.py:1014-1034` (Energy Fluxes tab)
-- Static asset mount: `app.py:1186` (`static_assets=www_dir`)
+- Render function: `pyvis/shiny/wrapper.py:214` (`render_network`); conditional `CDN_INLINE` override at `wrapper.py:260-264`
+- Current render sites being rewritten: `app.py:738-748` (Network tab save+iframe block), `app.py:1024-1035` (Energy Fluxes tab save+iframe block). Network object construction at `app.py:712-737` and `app.py:1014-1023` is **not** modified.
+- Static asset mount: `app.py:1186` (`static_assets=www_dir`); `www_dir.mkdir(exist_ok=True)` at `app.py:1184` retained for `www/img/`
