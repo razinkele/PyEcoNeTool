@@ -33,6 +33,11 @@ from network_analysis import (
     FLUX_CONVERSION_FACTOR
 )
 
+from flux_calculations import (
+    fluxing,
+    validate_flux_equilibrium
+)
+
 from network_viz import (
     create_topology_network,
     create_flux_network,
@@ -379,22 +384,6 @@ app_ui = ui.page_fluid(
         .left-menu.collapsed {
             width: 60px;
         }
-        .menu-header {
-            padding: 20px;
-            background: #34495e;
-            text-align: center;
-            font-size: 1.3em;
-            font-weight: bold;
-            border-bottom: 2px solid #1a252f;
-            white-space: nowrap;
-            overflow: hidden;
-        }
-        .left-menu.collapsed .menu-header {
-            padding: 20px 5px;
-            font-size: 0.9em;
-            writing-mode: vertical-rl;
-            text-orientation: mixed;
-        }
         .menu-item {
             padding: 15px 20px;
             cursor: pointer;
@@ -403,6 +392,9 @@ app_ui = ui.page_fluid(
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
+        }
+        .menu-item:first-of-type {
+            margin-top: 15px;
         }
         .menu-item:hover {
             background: #34495e;
@@ -425,26 +417,28 @@ app_ui = ui.page_fluid(
         }
         .toggle-btn {
             position: absolute;
-            top: 10px;
-            right: -15px;
-            width: 30px;
-            height: 30px;
-            background: #3498db;
-            border: none;
+            top: 15px;
+            right: -18px;
+            width: 36px;
+            height: 36px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border: 2px solid white;
             border-radius: 50%;
             color: white;
             cursor: pointer;
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 16px;
+            font-size: 18px;
+            font-weight: bold;
             z-index: 1000;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.3);
-            transition: all 0.3s;
+            box-shadow: 0 3px 8px rgba(0,0,0,0.3);
+            transition: all 0.3s ease;
         }
         .toggle-btn:hover {
-            background: #2980b9;
-            transform: scale(1.1);
+            background: linear-gradient(135deg, #764ba2 0%, #667eea 100%);
+            transform: scale(1.15);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.4);
         }
         .right-content {
             flex: 1;
@@ -509,7 +503,6 @@ app_ui = ui.page_fluid(
                     {"class": "toggle-btn", "id": "toggle-sidebar-btn", "onclick": "toggleSidebar()"},
                     "☰"
                 ),
-                ui.div({"class": "menu-header"}, "Navigation"),
                 ui.input_action_link("menu_dashboard", ui.div({"class": "menu-item active", "id": "menu_dashboard_div", "title": "Dashboard - Overview and summary statistics"}, "Dashboard")),
                 ui.input_action_link("menu_network", ui.div({"class": "menu-item", "id": "menu_network_div", "title": "Food Web Network - Interactive network visualization"}, "Food Web Network")),
                 ui.input_action_link("menu_topology", ui.div({"class": "menu-item", "id": "menu_topology_div", "title": "Topological Metrics - Network structure analysis"}, "Topological Metrics")),
@@ -912,24 +905,45 @@ Node-Weighted Network Indicators:
         info = current_species_info()
         temp = input.temperature()
 
-        # Calculate metabolic losses
+        # Calculate metabolic losses using allometric scaling
         losses = calculate_losses(
             info['bodymasses'].values,
             info['met.types'].tolist(),
             temp
         )
 
-        # Create flux matrix (simplified - you would use fluxweb package equivalent)
-        # For now, using a simple approximation based on network structure
+        # Get adjacency matrix (rows=prey, cols=predators)
         adj_matrix = nx.to_numpy_array(G)
         biomass = info['meanB'].values
+        efficiencies = info['efficiencies'].values
 
-        # Simple flux calculation (this would be replaced with proper fluxing algorithm)
-        flux_matrix = adj_matrix * biomass[:, np.newaxis] * losses[:, np.newaxis] * FLUX_CONVERSION_FACTOR / 1000
+        # Calculate fluxes using proper fluxweb algorithm
+        # This implements the equilibrium-based approach from Gauzens et al. (2019)
+        flux_matrix = fluxing(
+            mat=adj_matrix,
+            biomasses=biomass,
+            losses=losses,
+            efficiencies=efficiencies,
+            bioms_prefs=True,
+            bioms_losses=True,
+            ef_level="prey"
+        )
+
+        # Convert J/sec to kJ/day (multiply by 86.4)
+        flux_matrix = flux_matrix * FLUX_CONVERSION_FACTOR
+
+        # Validate equilibrium (optional, for debugging)
+        validation = validate_flux_equilibrium(
+            flux_matrix / FLUX_CONVERSION_FACTOR,  # Convert back to J/sec for validation
+            losses,
+            efficiencies,
+            biomass
+        )
 
         flux_results.set({
             'flux_matrix': flux_matrix,
-            'losses': losses
+            'losses': losses,
+            'validation': validation
         })
 
     @output
