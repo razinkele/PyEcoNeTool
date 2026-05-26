@@ -42,8 +42,8 @@ from network_viz import (
     create_topology_network,
     create_flux_network,
     get_functional_group_colors,
-    save_network_html
 )
+from pyvis.shiny import render_network
 
 # ============================================================================
 # DATA LOADING
@@ -735,18 +735,7 @@ Network Statistics:
             )
             filename = "flux_network.html"
 
-        # Save to www directory for static serving
-        www_path = Path("www") / filename
-        save_network_html(net, str(www_path))
-
-        # Use iframe to display the network (static_assets serves from root)
-        return ui.tags.iframe(
-            src=f"/{filename}",
-            width="100%",
-            height=f"{height}px",
-            frameborder="0",
-            style="border: none;"
-        )
+        return render_network(net, height=f"{height}px", width="100%")
 
     @output
     @render.plot
@@ -1021,18 +1010,7 @@ Flux-Based Indicators:
             height="600px"
         )
 
-        # Save to www directory for static serving
-        www_path = Path("www") / "flux_network_energy_tab.html"
-        save_network_html(net, str(www_path))
-
-        # Use iframe to display the network (static_assets serves from root)
-        return ui.tags.iframe(
-            src="/flux_network_energy_tab.html",
-            width="100%",
-            height="600px",
-            frameborder="0",
-            style="border: none;"
-        )
+        return render_network(net, height="600px", width="100%")
 
     # ========================================================================
     # KEYSTONENESS ANALYSIS TAB

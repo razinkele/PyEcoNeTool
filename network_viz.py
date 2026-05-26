@@ -10,8 +10,6 @@ import numpy as np
 import pandas as pd
 from pyvis.network import Network
 from typing import Dict, List, Tuple, Optional
-import tempfile
-import os
 from network_analysis import (
     calculate_trophic_levels,
     COLOR_SCHEME,
@@ -309,38 +307,6 @@ def create_flux_network(
         )
 
     return net
-
-
-def save_network_html(net: Network, output_path: str) -> str:
-    """
-    Save a PyVis network to an HTML file.
-
-    Args:
-        net: PyVis Network object
-        output_path: Path to save the HTML file
-
-    Returns:
-        Path to the saved HTML file
-    """
-    net.save_graph(output_path)
-    return output_path
-
-
-def create_temp_network_html(net: Network) -> str:
-    """
-    Create a temporary HTML file for the network visualization.
-
-    Args:
-        net: PyVis Network object
-
-    Returns:
-        Path to the temporary HTML file
-    """
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.html', delete=False) as f:
-        temp_path = f.name
-
-    net.save_graph(temp_path)
-    return temp_path
 
 
 def get_functional_group_colors(functional_groups: List[str]) -> Tuple[List[str], Dict[str, str]]:
