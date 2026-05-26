@@ -20,3 +20,17 @@ Thumbs.db
 *~
 *.swp
 *.swo
+
+# Python bytecode caches
+__pycache__/
+*.pyc
+
+# Per-render network HTML produced by Shiny app (post pyvis.shiny migration these stop being written, but legacy artifacts remain)
+www/topology_network.html
+www/flux_network.html
+www/flux_network_energy_tab.html
+temp_*.html
+test_network.html
+
+# Throwaway micromamba env export file (Task 7 Step 4)
+env-export.yml
