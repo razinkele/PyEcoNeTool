@@ -8,7 +8,7 @@ shinywidgets>=0.3.0
 networkx>=3.0
 
 # Network Visualization
-pyvis>=0.3.2
+pyvis @ git+https://github.com/razinkele/pyvis.git@v4.2  # razinkele fork; not on PyPI. Requires git on PATH at install time.
 
 # Data Processing
 pandas>=2.0.0
