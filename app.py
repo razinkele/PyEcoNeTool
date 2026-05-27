@@ -17,6 +17,7 @@ import seaborn as sns
 from pathlib import Path
 import pickle
 import json
+import time
 from typing import Dict, List, Tuple, Optional
 import shinyswatch
 
@@ -44,6 +45,8 @@ from network_viz import (
     get_functional_group_colors,
 )
 from pyvis.shiny import render_network
+
+from feedback_reporter import collect_system_context, submit_feedback
 
 # ============================================================================
 # DATA LOADING
@@ -509,7 +512,8 @@ app_ui = ui.page_fluid(
                 ui.input_action_link("menu_biomass", ui.div({"class": "menu-item", "id": "menu_biomass_div", "title": "Biomass Analysis - Species biomass distribution"}, "Biomass Analysis")),
                 ui.input_action_link("menu_fluxes", ui.div({"class": "menu-item", "id": "menu_fluxes_div", "title": "Energy Fluxes - Energy flow calculations"}, "Energy Fluxes")),
                 ui.input_action_link("menu_keystoneness", ui.div({"class": "menu-item", "id": "menu_keystoneness_div", "title": "Keystoneness Analysis - Identify keystone species"}, "Keystoneness Analysis")),
-                ui.input_action_link("menu_editor", ui.div({"class": "menu-item", "id": "menu_editor_div", "title": "Data Editor - Edit species and interaction data"}, "Data Editor"))
+                ui.input_action_link("menu_editor", ui.div({"class": "menu-item", "id": "menu_editor_div", "title": "Data Editor - Edit species and interaction data"}, "Data Editor")),
+                ui.input_action_link("menu_feedback", ui.div({"class": "menu-item", "id": "menu_feedback_div", "title": "Feedback - Report a bug or suggest an improvement"}, "Feedback")),
             ),
             # Right Content
             ui.div(
@@ -547,6 +551,7 @@ def server(input, output, session):
     current_species_info = reactive.Value(species_info)
     flux_results = reactive.Value(None)
     current_page = reactive.Value("dashboard")
+    last_feedback_submit = reactive.Value(None)  # epoch seconds; rate-limit guard
 
     # ========================================================================
     # TOP BAR AND FOOTER RENDERERS
@@ -608,6 +613,139 @@ def server(input, output, session):
     @reactive.event(input.menu_editor)
     def _():
         current_page.set("editor")
+
+    # ========================================================================
+    # FEEDBACK MODAL (bug reports + suggestions)
+    # ========================================================================
+
+    @reactive.effect
+    @reactive.event(input.menu_feedback)
+    def _show_feedback_modal():
+        ui.modal_show(
+            ui.modal(
+                ui.p("Help us improve EconetPy by reporting bugs or suggesting features."),
+                ui.input_radio_buttons(
+                    "fb_type",
+                    "Report type",
+                    choices={
+                        "bug": "Bug Report",
+                        "suggestion": "Improvement Suggestion",
+                        "general": "General Feedback",
+                    },
+                    selected="bug",
+                    inline=False,
+                ),
+                ui.input_text("fb_title", "Title", placeholder="Brief summary of your feedback", width="100%"),
+                ui.input_text_area(
+                    "fb_description",
+                    "Description",
+                    rows=5,
+                    placeholder="Please describe in detail what happened or what you would like to see improved.",
+                    width="100%",
+                ),
+                ui.input_text_area(
+                    "fb_steps",
+                    "Steps to Reproduce (bug reports only)",
+                    rows=3,
+                    placeholder="1. Open the Network tab\n2. Click ...\n3. Observed: ...",
+                    width="100%",
+                ),
+                ui.tags.small(
+                    {"class": "text-muted", "style": "display:block; margin-top:8px;"},
+                    "System info (app version, current tab, browser, species and edge counts) "
+                    "will be attached automatically. No personal data is collected.",
+                ),
+                ui.tags.script(
+                    "setTimeout(function(){if(typeof Shiny!=='undefined'){"
+                    "Shiny.setInputValue('fb_browser_info', navigator.userAgent);"
+                    "}}, 50);"
+                ),
+                title="Send Feedback",
+                footer=ui.tags.div(
+                    ui.modal_button("Cancel"),
+                    ui.input_action_button("fb_submit", "Submit Feedback", class_="btn-primary"),
+                ),
+                easy_close=False,
+                size="l",
+            )
+        )
+
+    @reactive.effect
+    @reactive.event(input.fb_submit)
+    def _handle_feedback_submit():
+        # Rate limit (30s server-side)
+        now = time.time()
+        last = last_feedback_submit.get()
+        if last is not None and (now - last) < 30:
+            ui.notification_show("Please wait before submitting again.", type="warning", duration=4)
+            return
+
+        title = (input.fb_title() or "").strip()
+        description = (input.fb_description() or "").strip()
+        if not title:
+            ui.notification_show("Please enter a title.", type="warning", duration=4)
+            return
+        if not description:
+            ui.notification_show("Please enter a description.", type="warning", duration=4)
+            return
+
+        fb_type = input.fb_type() or "general"
+        steps = (input.fb_steps() or "").strip() if fb_type == "bug" else ""
+
+        # Snapshot counts; tolerate missing/invalid state
+        try:
+            info = current_species_info()
+            species_count = int(len(info)) if info is not None else 0
+        except Exception:
+            species_count = 0
+        try:
+            g = current_network()
+            edge_count = int(g.number_of_edges()) if g is not None else 0
+        except Exception:
+            edge_count = 0
+
+        try:
+            browser_info = input.fb_browser_info()
+        except Exception:
+            browser_info = "unknown"
+
+        context = collect_system_context(
+            current_tab=current_page() or "unknown",
+            browser_info=browser_info or "unknown",
+            species_count=species_count,
+            edge_count=edge_count,
+        )
+
+        try:
+            result = submit_feedback(
+                title=title,
+                description=description,
+                type_=fb_type,
+                steps=steps,
+                context=context,
+            )
+        except ValueError as exc:
+            ui.notification_show(f"Validation error: {exc}", type="warning", duration=5)
+            return
+        except Exception as exc:
+            ui.notification_show(f"Submission failed: {exc}", type="error", duration=8)
+            return
+
+        last_feedback_submit.set(now)
+
+        if result.github_success:
+            ui.notification_show(
+                f"Thank you! Submitted as GitHub issue: {result.github_url}",
+                type="message",
+                duration=8,
+            )
+        elif result.local_success:
+            ui.notification_show("Thank you! Your feedback has been saved.", type="message", duration=5)
+        else:
+            ui.notification_show("Feedback could not be saved. Please try again.", type="error", duration=8)
+            return
+
+        ui.modal_remove()
 
     # ========================================================================
     # MAIN CONTENT RENDERER

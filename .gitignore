@@ -34,3 +34,6 @@ test_network.html
 
 # Throwaway micromamba env export file (Task 7 Step 4)
 env-export.yml
+
+# User feedback log written by feedback_reporter.submit_feedback()
+data/user_feedback_log.ndjson
