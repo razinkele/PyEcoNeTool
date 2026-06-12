@@ -53,22 +53,31 @@ from feedback_reporter import collect_system_context, submit_feedback
 # ============================================================================
 
 def load_default_data():
-    """Load the default Baltic Food Web data."""
-    # For now, we'll create a placeholder structure
-    # In production, you would load from a pickle file or similar
-    # that contains the NetworkX graph and species info DataFrame
+    """Load the default Baltic Food Web data.
 
-    # This is a placeholder - you'll need to convert BalticFW.Rdata to a Python format
-    # You can use rpy2 or manually export to CSV/Excel from R
-
+    Resolution order:
+    1. BalticFW.pkl — fast prebuilt cache (gitignored; present on dev machines).
+    2. Tracked text sources (BalticFW_network.graphml + _species_info.csv +
+       _metadata.json) via load_data.load_baltic_data() — used on a fresh clone
+       where the pickle is absent.
+    3. A small synthetic example network, only if neither is available.
+    """
     data_file = Path("BalticFW.pkl")
 
     if data_file.exists():
+        # Trusted local cache: this .pkl is produced by load_data.save_to_pickle
+        # from the project's own tracked GraphML/CSV/JSON, never fetched from
+        # an external/untrusted source, so pickle.load here is safe.
         with open(data_file, 'rb') as f:
             data = pickle.load(f)
         return data['network'], data['info']
-    else:
-        # Create a simple example network if data file doesn't exist
+
+    # No pickle cache — reconstruct from the tracked GraphML/CSV/JSON sources.
+    try:
+        from load_data import load_baltic_data
+        return load_baltic_data()
+    except (FileNotFoundError, ImportError) as exc:
+        print(f"Baltic sources unavailable ({exc}); using example network.")
         return create_example_network()
 
 
