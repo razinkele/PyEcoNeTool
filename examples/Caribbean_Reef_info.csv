@@ -1,0 +1,11 @@
+"species","fg","meanB","bodymasses","met.types","efficiencies"
+"Phytoplankton","Phytoplankton",8000,1e-05,"Other",0.4
+"Macroalgae","Phytoplankton",3500,0.1,"Other",0.45
+"Zooplankton","Zooplankton",1200,0.001,"invertebrates",0.7
+"Sea_Urchin","Benthos",600,80,"invertebrates",0.6
+"Parrotfish","Fish",450,500,"ectotherm vertebrates",0.75
+"Damselfish","Fish",800,50,"ectotherm vertebrates",0.8
+"Snapper","Fish",250,1500,"ectotherm vertebrates",0.85
+"Grouper","Fish",180,5000,"ectotherm vertebrates",0.85
+"Octopus","Benthos",150,2000,"invertebrates",0.8
+"Barracuda","Fish",120,8000,"ectotherm vertebrates",0.85
