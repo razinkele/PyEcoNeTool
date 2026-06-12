@@ -119,7 +119,7 @@ def create_github_issue(
         return None
 
     repo_owner = os.environ.get("ECONETPY_GITHUB_OWNER", "razinkele")
-    repo_name = os.environ.get("ECONETPY_GITHUB_REPO", "EconetPy")
+    repo_name = os.environ.get("ECONETPY_GITHUB_REPO", "PyEcoNeTool")
     api_url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/issues"
 
     payload = json.dumps(
