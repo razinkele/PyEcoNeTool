@@ -17,6 +17,7 @@ import seaborn as sns
 from pathlib import Path
 import pickle
 import json
+import time
 from typing import Dict, List, Tuple, Optional
 import shinyswatch
 
@@ -33,34 +34,50 @@ from network_analysis import (
     FLUX_CONVERSION_FACTOR
 )
 
+from flux_calculations import (
+    fluxing,
+    validate_flux_equilibrium
+)
+
 from network_viz import (
     create_topology_network,
     create_flux_network,
     get_functional_group_colors,
-    save_network_html
 )
+from pyvis.shiny import render_network
+
+from feedback_reporter import collect_system_context, submit_feedback
 
 # ============================================================================
 # DATA LOADING
 # ============================================================================
 
 def load_default_data():
-    """Load the default Baltic Food Web data."""
-    # For now, we'll create a placeholder structure
-    # In production, you would load from a pickle file or similar
-    # that contains the NetworkX graph and species info DataFrame
+    """Load the default Baltic Food Web data.
 
-    # This is a placeholder - you'll need to convert BalticFW.Rdata to a Python format
-    # You can use rpy2 or manually export to CSV/Excel from R
-
+    Resolution order:
+    1. BalticFW.pkl — fast prebuilt cache (gitignored; present on dev machines).
+    2. Tracked text sources (BalticFW_network.graphml + _species_info.csv +
+       _metadata.json) via load_data.load_baltic_data() — used on a fresh clone
+       where the pickle is absent.
+    3. A small synthetic example network, only if neither is available.
+    """
     data_file = Path("BalticFW.pkl")
 
     if data_file.exists():
+        # Trusted local cache: this .pkl is produced by load_data.save_to_pickle
+        # from the project's own tracked GraphML/CSV/JSON, never fetched from
+        # an external/untrusted source, so pickle.load here is safe.
         with open(data_file, 'rb') as f:
             data = pickle.load(f)
         return data['network'], data['info']
-    else:
-        # Create a simple example network if data file doesn't exist
+
+    # No pickle cache — reconstruct from the tracked GraphML/CSV/JSON sources.
+    try:
+        from load_data import load_baltic_data
+        return load_baltic_data()
+    except (FileNotFoundError, ImportError) as exc:
+        print(f"Baltic sources unavailable ({exc}); using example network.")
         return create_example_network()
 
 
@@ -379,22 +396,6 @@ app_ui = ui.page_fluid(
         .left-menu.collapsed {
             width: 60px;
         }
-        .menu-header {
-            padding: 20px;
-            background: #34495e;
-            text-align: center;
-            font-size: 1.3em;
-            font-weight: bold;
-            border-bottom: 2px solid #1a252f;
-            white-space: nowrap;
-            overflow: hidden;
-        }
-        .left-menu.collapsed .menu-header {
-            padding: 20px 5px;
-            font-size: 0.9em;
-            writing-mode: vertical-rl;
-            text-orientation: mixed;
-        }
         .menu-item {
             padding: 15px 20px;
             cursor: pointer;
@@ -403,6 +404,9 @@ app_ui = ui.page_fluid(
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
+        }
+        .menu-item:first-of-type {
+            margin-top: 15px;
         }
         .menu-item:hover {
             background: #34495e;
@@ -425,26 +429,28 @@ app_ui = ui.page_fluid(
         }
         .toggle-btn {
             position: absolute;
-            top: 10px;
-            right: -15px;
-            width: 30px;
-            height: 30px;
-            background: #3498db;
-            border: none;
+            top: 15px;
+            right: -18px;
+            width: 36px;
+            height: 36px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border: 2px solid white;
             border-radius: 50%;
             color: white;
             cursor: pointer;
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 16px;
+            font-size: 18px;
+            font-weight: bold;
             z-index: 1000;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.3);
-            transition: all 0.3s;
+            box-shadow: 0 3px 8px rgba(0,0,0,0.3);
+            transition: all 0.3s ease;
         }
         .toggle-btn:hover {
-            background: #2980b9;
-            transform: scale(1.1);
+            background: linear-gradient(135deg, #764ba2 0%, #667eea 100%);
+            transform: scale(1.15);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.4);
         }
         .right-content {
             flex: 1;
@@ -509,14 +515,14 @@ app_ui = ui.page_fluid(
                     {"class": "toggle-btn", "id": "toggle-sidebar-btn", "onclick": "toggleSidebar()"},
                     "☰"
                 ),
-                ui.div({"class": "menu-header"}, "Navigation"),
                 ui.input_action_link("menu_dashboard", ui.div({"class": "menu-item active", "id": "menu_dashboard_div", "title": "Dashboard - Overview and summary statistics"}, "Dashboard")),
                 ui.input_action_link("menu_network", ui.div({"class": "menu-item", "id": "menu_network_div", "title": "Food Web Network - Interactive network visualization"}, "Food Web Network")),
                 ui.input_action_link("menu_topology", ui.div({"class": "menu-item", "id": "menu_topology_div", "title": "Topological Metrics - Network structure analysis"}, "Topological Metrics")),
                 ui.input_action_link("menu_biomass", ui.div({"class": "menu-item", "id": "menu_biomass_div", "title": "Biomass Analysis - Species biomass distribution"}, "Biomass Analysis")),
                 ui.input_action_link("menu_fluxes", ui.div({"class": "menu-item", "id": "menu_fluxes_div", "title": "Energy Fluxes - Energy flow calculations"}, "Energy Fluxes")),
                 ui.input_action_link("menu_keystoneness", ui.div({"class": "menu-item", "id": "menu_keystoneness_div", "title": "Keystoneness Analysis - Identify keystone species"}, "Keystoneness Analysis")),
-                ui.input_action_link("menu_editor", ui.div({"class": "menu-item", "id": "menu_editor_div", "title": "Data Editor - Edit species and interaction data"}, "Data Editor"))
+                ui.input_action_link("menu_editor", ui.div({"class": "menu-item", "id": "menu_editor_div", "title": "Data Editor - Edit species and interaction data"}, "Data Editor")),
+                ui.input_action_link("menu_feedback", ui.div({"class": "menu-item", "id": "menu_feedback_div", "title": "Feedback - Report a bug or suggest an improvement"}, "Feedback")),
             ),
             # Right Content
             ui.div(
@@ -554,6 +560,7 @@ def server(input, output, session):
     current_species_info = reactive.Value(species_info)
     flux_results = reactive.Value(None)
     current_page = reactive.Value("dashboard")
+    last_feedback_submit = reactive.Value(None)  # epoch seconds; rate-limit guard
 
     # ========================================================================
     # TOP BAR AND FOOTER RENDERERS
@@ -615,6 +622,139 @@ def server(input, output, session):
     @reactive.event(input.menu_editor)
     def _():
         current_page.set("editor")
+
+    # ========================================================================
+    # FEEDBACK MODAL (bug reports + suggestions)
+    # ========================================================================
+
+    @reactive.effect
+    @reactive.event(input.menu_feedback)
+    def _show_feedback_modal():
+        ui.modal_show(
+            ui.modal(
+                ui.p("Help us improve EconetPy by reporting bugs or suggesting features."),
+                ui.input_radio_buttons(
+                    "fb_type",
+                    "Report type",
+                    choices={
+                        "bug": "Bug Report",
+                        "suggestion": "Improvement Suggestion",
+                        "general": "General Feedback",
+                    },
+                    selected="bug",
+                    inline=False,
+                ),
+                ui.input_text("fb_title", "Title", placeholder="Brief summary of your feedback", width="100%"),
+                ui.input_text_area(
+                    "fb_description",
+                    "Description",
+                    rows=5,
+                    placeholder="Please describe in detail what happened or what you would like to see improved.",
+                    width="100%",
+                ),
+                ui.input_text_area(
+                    "fb_steps",
+                    "Steps to Reproduce (bug reports only)",
+                    rows=3,
+                    placeholder="1. Open the Network tab\n2. Click ...\n3. Observed: ...",
+                    width="100%",
+                ),
+                ui.tags.small(
+                    {"class": "text-muted", "style": "display:block; margin-top:8px;"},
+                    "System info (app version, current tab, browser, species and edge counts) "
+                    "will be attached automatically. No personal data is collected.",
+                ),
+                ui.tags.script(
+                    "setTimeout(function(){if(typeof Shiny!=='undefined'){"
+                    "Shiny.setInputValue('fb_browser_info', navigator.userAgent);"
+                    "}}, 50);"
+                ),
+                title="Send Feedback",
+                footer=ui.tags.div(
+                    ui.modal_button("Cancel"),
+                    ui.input_action_button("fb_submit", "Submit Feedback", class_="btn-primary"),
+                ),
+                easy_close=False,
+                size="l",
+            )
+        )
+
+    @reactive.effect
+    @reactive.event(input.fb_submit)
+    def _handle_feedback_submit():
+        # Rate limit (30s server-side)
+        now = time.time()
+        last = last_feedback_submit.get()
+        if last is not None and (now - last) < 30:
+            ui.notification_show("Please wait before submitting again.", type="warning", duration=4)
+            return
+
+        title = (input.fb_title() or "").strip()
+        description = (input.fb_description() or "").strip()
+        if not title:
+            ui.notification_show("Please enter a title.", type="warning", duration=4)
+            return
+        if not description:
+            ui.notification_show("Please enter a description.", type="warning", duration=4)
+            return
+
+        fb_type = input.fb_type() or "general"
+        steps = (input.fb_steps() or "").strip() if fb_type == "bug" else ""
+
+        # Snapshot counts; tolerate missing/invalid state
+        try:
+            info = current_species_info()
+            species_count = int(len(info)) if info is not None else 0
+        except Exception:
+            species_count = 0
+        try:
+            g = current_network()
+            edge_count = int(g.number_of_edges()) if g is not None else 0
+        except Exception:
+            edge_count = 0
+
+        try:
+            browser_info = input.fb_browser_info()
+        except Exception:
+            browser_info = "unknown"
+
+        context = collect_system_context(
+            current_tab=current_page() or "unknown",
+            browser_info=browser_info or "unknown",
+            species_count=species_count,
+            edge_count=edge_count,
+        )
+
+        try:
+            result = submit_feedback(
+                title=title,
+                description=description,
+                type_=fb_type,
+                steps=steps,
+                context=context,
+            )
+        except ValueError as exc:
+            ui.notification_show(f"Validation error: {exc}", type="warning", duration=5)
+            return
+        except Exception as exc:
+            ui.notification_show(f"Submission failed: {exc}", type="error", duration=8)
+            return
+
+        last_feedback_submit.set(now)
+
+        if result.github_success:
+            ui.notification_show(
+                f"Thank you! Submitted as GitHub issue: {result.github_url}",
+                type="message",
+                duration=8,
+            )
+        elif result.local_success:
+            ui.notification_show("Thank you! Your feedback has been saved.", type="message", duration=5)
+        else:
+            ui.notification_show("Feedback could not be saved. Please try again.", type="error", duration=8)
+            return
+
+        ui.modal_remove()
 
     # ========================================================================
     # MAIN CONTENT RENDERER
@@ -742,18 +882,7 @@ Network Statistics:
             )
             filename = "flux_network.html"
 
-        # Save to www directory for static serving
-        www_path = Path("www") / filename
-        save_network_html(net, str(www_path))
-
-        # Use iframe to display the network (static_assets serves from root)
-        return ui.tags.iframe(
-            src=f"/{filename}",
-            width="100%",
-            height=f"{height}px",
-            frameborder="0",
-            style="border: none;"
-        )
+        return render_network(net, height=f"{height}px", width="100%")
 
     @output
     @render.plot
@@ -912,24 +1041,45 @@ Node-Weighted Network Indicators:
         info = current_species_info()
         temp = input.temperature()
 
-        # Calculate metabolic losses
+        # Calculate metabolic losses using allometric scaling
         losses = calculate_losses(
             info['bodymasses'].values,
             info['met.types'].tolist(),
             temp
         )
 
-        # Create flux matrix (simplified - you would use fluxweb package equivalent)
-        # For now, using a simple approximation based on network structure
+        # Get adjacency matrix (rows=prey, cols=predators)
         adj_matrix = nx.to_numpy_array(G)
         biomass = info['meanB'].values
+        efficiencies = info['efficiencies'].values
 
-        # Simple flux calculation (this would be replaced with proper fluxing algorithm)
-        flux_matrix = adj_matrix * biomass[:, np.newaxis] * losses[:, np.newaxis] * FLUX_CONVERSION_FACTOR / 1000
+        # Calculate fluxes using proper fluxweb algorithm
+        # This implements the equilibrium-based approach from Gauzens et al. (2019)
+        flux_matrix = fluxing(
+            mat=adj_matrix,
+            biomasses=biomass,
+            losses=losses,
+            efficiencies=efficiencies,
+            bioms_prefs=True,
+            bioms_losses=True,
+            ef_level="prey"
+        )
+
+        # Convert J/sec to kJ/day (multiply by 86.4)
+        flux_matrix = flux_matrix * FLUX_CONVERSION_FACTOR
+
+        # Validate equilibrium (optional, for debugging)
+        validation = validate_flux_equilibrium(
+            flux_matrix / FLUX_CONVERSION_FACTOR,  # Convert back to J/sec for validation
+            losses,
+            efficiencies,
+            biomass
+        )
 
         flux_results.set({
             'flux_matrix': flux_matrix,
-            'losses': losses
+            'losses': losses,
+            'validation': validation
         })
 
     @output
@@ -1007,18 +1157,7 @@ Flux-Based Indicators:
             height="600px"
         )
 
-        # Save to www directory for static serving
-        www_path = Path("www") / "flux_network_energy_tab.html"
-        save_network_html(net, str(www_path))
-
-        # Use iframe to display the network (static_assets serves from root)
-        return ui.tags.iframe(
-            src="/flux_network_energy_tab.html",
-            width="100%",
-            height="600px",
-            frameborder="0",
-            style="border: none;"
-        )
+        return render_network(net, height="600px", width="100%")
 
     # ========================================================================
     # KEYSTONENESS ANALYSIS TAB

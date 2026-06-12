@@ -1,0 +1,9 @@
+{
+  "n_species": 34,
+  "n_links": 207,
+  "is_directed": true,
+  "description": "Gulf of Riga Food Web (1979-2016)",
+  "source": "Frelat & Kortsch, 2020",
+  "functional_groups": ["Benthos", "Detritus", "Fish", "Phytoplankton", "Zooplankton"],
+  "color_scheme": ["orange", "darkgrey", "blue", "green", "cyan"]
+}

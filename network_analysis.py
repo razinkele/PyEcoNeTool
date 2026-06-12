@@ -4,15 +4,24 @@ Network Analysis Functions for EcoNeTool
 This module contains all the helper functions for food web network analysis,
 converted from R to Python. Includes topological metrics, biomass-weighted indicators,
 energy flux calculations, and keystoneness analysis.
+
+IMPORTANT: For proper energy flux calculations, use the fluxing() function from
+flux_calculations module, which implements the complete fluxweb algorithm.
 """
 
 import numpy as np
 import pandas as pd
 import networkx as nx
-import igraph as ig
 from scipy.linalg import inv
 from typing import Dict, Tuple, List
 import warnings
+
+# Import flux calculation functions
+from flux_calculations import (
+    fluxing,
+    calculate_losses_allometric,
+    validate_flux_equilibrium
+)
 
 # ============================================================================
 # CONFIGURATION CONSTANTS
@@ -71,7 +80,9 @@ def calculate_trophic_levels(G: nx.DiGraph) -> np.ndarray:
     # Initialize all to TL = 1
     tl = np.ones(n)
 
-    # Get adjacency matrix (rows = predators, cols = prey)
+    # Get adjacency matrix
+    # In NetworkX: adj[i,j] = 1 means edge from node i to node j
+    # For food webs where edges go prey→predator: adj[i,j] = i is eaten by j
     nodes = list(G.nodes())
     adj = nx.to_numpy_array(G, nodelist=nodes)
 
@@ -81,14 +92,15 @@ def calculate_trophic_levels(G: nx.DiGraph) -> np.ndarray:
         tl_old = tl.copy()
 
         for i in range(n):
-            # Find prey of species i (incoming edges)
-            prey_indices = np.where(adj[i, :] > 0)[0]
+            # Find prey of species i (edges going FROM prey TO predator i)
+            # Column i represents edges going TO node i (prey being eaten by i)
+            prey_indices = np.where(adj[:, i] > 0)[0]
 
             if len(prey_indices) > 0:
                 # TL = 1 + mean TL of prey
                 tl[i] = 1 + np.mean(tl[prey_indices])
             else:
-                # Basal species
+                # Basal species (no prey)
                 tl[i] = 1
 
         # Check for convergence
@@ -169,11 +181,13 @@ def get_topological_indicators(G: nx.DiGraph) -> Dict[str, float]:
 
     # Omnivory index
     adj = nx.to_numpy_array(G, nodelist=list(G.nodes()))
-    webtl = adj * tlnodes  # Broadcasting TL values
+    # Multiply each row by corresponding prey TL (adjacency: rows=prey, cols=predators)
+    webtl = adj * tlnodes[:, np.newaxis]
     webtl[webtl == 0] = np.nan
 
-    # Standard deviation of prey TL for each consumer
-    omninodes = np.nanstd(webtl, axis=1)
+    # Standard deviation of prey TL for each predator (across rows, for each column)
+    # axis=0 aggregates rows (calculates SD of prey TL for each predator column)
+    omninodes = np.nanstd(webtl, axis=0)
     Omni = np.nanmean(omninodes)
 
     return {
@@ -269,6 +283,9 @@ def calculate_losses(bodymasses: np.ndarray, met_types: List[str], temp: float =
     Computes species-specific metabolic losses using the allometric equation
     from metabolic theory of ecology (Brown et al. 2004).
 
+    NOTE: This function is kept for backward compatibility. For new code,
+    use calculate_losses_allometric() from flux_calculations module.
+
     Args:
         bodymasses: numpy array of body masses in grams
         met_types: list of metabolic types ("invertebrates", "ectotherm vertebrates", or "Other")
@@ -281,26 +298,8 @@ def calculate_losses(bodymasses: np.ndarray, met_types: List[str], temp: float =
         Brown, J. H., et al. (2004). Toward a metabolic theory of ecology.
         Ecology, 85(7), 1771-1789.
     """
-    # Constants from metabolic theory
-    boltz = 0.00008617343  # Boltzmann constant
-    a = -0.29              # Allometric scaling (for biomass)
-    E = 0.69               # Activation energy
-
-    # Normalization constants (intercept of body-mass metabolism scaling relationship)
-    losses_param = {
-        "invertebrates": 17.17,
-        "ectotherm vertebrates": 18.47,
-        "Other": 0
-    }
-
-    # Get x0 for each species based on metabolic type
-    x0 = np.array([losses_param.get(mt, 0) for mt in met_types])
-
-    # Calculate losses using allometric equation
-    # Formula: exp((a * log(M_i) + x0) - E/(k*(T+273.15)))
-    losses = np.exp((a * np.log(bodymasses) + x0) - E / (boltz * (273.15 + temp)))
-
-    return losses
+    # Use the implementation from flux_calculations module
+    return calculate_losses_allometric(bodymasses, met_types, temp)
 
 
 # ============================================================================

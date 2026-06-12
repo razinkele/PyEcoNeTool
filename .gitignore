@@ -20,3 +20,36 @@ Thumbs.db
 *~
 *.swp
 *.swo
+
+# Python bytecode caches
+__pycache__/
+*.pyc
+
+# Per-render network HTML produced by Shiny app (post pyvis.shiny migration these stop being written, but legacy artifacts remain)
+www/topology_network.html
+www/flux_network.html
+www/flux_network_energy_tab.html
+temp_*.html
+test_network.html
+
+# Throwaway micromamba env export file (Task 7 Step 4)
+env-export.yml
+
+# User feedback log written by feedback_reporter.submit_feedback()
+data/user_feedback_log.ndjson
+
+# pyvis-generated vendored JS assets (recreated at render; not referenced by app)
+lib/
+
+# Regenerable pickle cache (load_data.save_to_pickle output; app falls back to example network)
+BalticFW.pkl
+
+# Upstream R repo archive — not project source
+EcoNeTool-master.zip
+
+# Ecopath/EwE binary model databases (large scratch/sample data)
+*.ewemdb
+
+# Original R binary data blob — canonical inputs are the tracked .graphml/.csv/.json
+# (examples/*.Rdata are intentionally tracked and unaffected by this exact-name rule)
+BalticFW.Rdata

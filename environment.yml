@@ -1,0 +1,39 @@
+# environment.yml — canonical conda env for EconetPy
+#
+# To apply this file:
+#   - Update existing env in place:    micromamba env update -n shiny -f environment.yml --prune
+#   - Or recreate fresh under new name: micromamba create -n shiny-fresh -f environment.yml
+#
+# Running `micromamba env create -f environment.yml` against an existing
+# `shiny` env errors with "prefix already exists" — use one of the two
+# forms above.
+#
+# Pair: requirements.txt (for `pip install -r requirements.txt` users).
+# Both files must be kept in sync manually until a single source of truth
+# is adopted (see spec docs/superpowers/specs/2026-05-25-pyvis-shiny-dropin-design.md
+# Risks table).
+
+name: shiny
+channels:
+  - conda-forge
+dependencies:
+  - python=3.13.*
+  - git                          # required so pip can resolve git+https URLs at install time
+  - shiny>=1.0.0
+  - htmltools>=0.5.0
+  - shinyswatch>=0.4.0
+  - shinywidgets>=0.3.0
+  - networkx>=3.0
+  - pandas>=2.0.0
+  - numpy>=2.4.0
+  - scipy>=1.10.0
+  - great-tables>=0.1.0
+  - openpyxl>=3.1.0
+  - xlrd>=2.0.0
+  - matplotlib>=3.7.0
+  - seaborn>=0.12.0
+  - plotly>=5.14.0
+  - pytest>=8.0
+  - pip
+  - pip:
+      - pyvis @ git+https://github.com/razinkele/pyvis.git@v4.2
