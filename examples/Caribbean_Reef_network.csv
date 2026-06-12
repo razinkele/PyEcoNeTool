@@ -1,0 +1,11 @@
+"","Phytoplankton","Macroalgae","Zooplankton","Sea_Urchin","Parrotfish","Damselfish","Snapper","Grouper","Octopus","Barracuda"
+"Phytoplankton",0,0,0,0,0,0,0,0,0,0
+"Macroalgae",0,0,0,0,0,0,0,0,0,0
+"Zooplankton",1,0,0,0,0,0,0,0,0,0
+"Sea_Urchin",0,1,0,0,0,0,0,0,0,0
+"Parrotfish",0,1,0,0,0,0,0,0,0,0
+"Damselfish",1,0,1,0,0,0,0,0,0,0
+"Snapper",0,0,1,1,0,1,0,0,0,0
+"Grouper",0,0,0,0,1,1,1,0,1,0
+"Octopus",0,0,0,1,0,1,0,0,0,0
+"Barracuda",0,0,0,0,1,1,1,1,0,0

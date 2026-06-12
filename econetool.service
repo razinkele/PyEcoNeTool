@@ -1,0 +1,18 @@
+[Unit]
+Description=EcoNeTool Python Shiny Application
+After=network.target
+
+[Service]
+Type=simple
+User=razinka
+Group=razinka
+WorkingDirectory=/srv/shiny-apps/EcoNeTool
+Environment="PATH=/home/razinka/miniconda3/envs/shiny/bin:/usr/local/bin:/usr/bin:/bin"
+ExecStart=/home/razinka/miniconda3/envs/shiny/bin/shiny run --host 0.0.0.0 --port 8000 app.py
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

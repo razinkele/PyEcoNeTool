@@ -1,0 +1,4 @@
+"species","fg","meanB","bodymasses","met.types","efficiencies"
+"Phytoplankton","Phytoplankton",5000,1e-05,"Other",0.45
+"Zooplankton","Zooplankton",800,0.001,"invertebrates",0.75
+"Fish","Fish",150,50,"ectotherm vertebrates",0.85
