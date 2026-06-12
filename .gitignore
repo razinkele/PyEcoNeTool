@@ -37,3 +37,19 @@ env-export.yml
 
 # User feedback log written by feedback_reporter.submit_feedback()
 data/user_feedback_log.ndjson
+
+# pyvis-generated vendored JS assets (recreated at render; not referenced by app)
+lib/
+
+# Regenerable pickle cache (load_data.save_to_pickle output; app falls back to example network)
+BalticFW.pkl
+
+# Upstream R repo archive — not project source
+EcoNeTool-master.zip
+
+# Ecopath/EwE binary model databases (large scratch/sample data)
+*.ewemdb
+
+# Original R binary data blob — canonical inputs are the tracked .graphml/.csv/.json
+# (examples/*.Rdata are intentionally tracked and unaffected by this exact-name rule)
+BalticFW.Rdata
