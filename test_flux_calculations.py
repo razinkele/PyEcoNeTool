@@ -324,6 +324,21 @@ def test_calculate_losses_metabolic_types():
     assert losses[2] != losses[0], "'Other' type should be different"
 
 
+def test_calculate_losses_allometric_pinned_invertebrate():
+    """Closed-form pin for a single invertebrate at M=1.0 g, T=3.5C.
+    Discriminates the Boltzmann constant, the -E/(kT) sign, the x0 intercept,
+    natural-log vs log10, and the +273.15 Kelvin conversion."""
+    boltz = 0.00008617343
+    T = 3.5
+    expected = np.exp((-0.29 * np.log(1.0) + 17.17) - 0.69 / (boltz * (273.15 + T)))
+    out = calculate_losses_allometric(
+        bodymasses=np.array([1.0]),
+        met_types=["invertebrates"],
+        temperature=T,
+    )
+    assert np.isclose(out[0], expected, rtol=1e-12), (out[0], expected)
+
+
 # ============================================================================
 # EQUILIBRIUM VALIDATION TESTS
 # ============================================================================
