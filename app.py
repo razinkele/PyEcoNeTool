@@ -1065,7 +1065,7 @@ Node-Weighted Network Indicators:
     # ENERGY FLUXES TAB
     # ========================================================================
 
-    @reactive.Effect
+    @reactive.effect
     @reactive.event(input.calculate_fluxes)
     def _():
         # Calculate fluxes when button is clicked
