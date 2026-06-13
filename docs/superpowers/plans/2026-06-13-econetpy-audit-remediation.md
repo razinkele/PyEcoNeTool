@@ -1174,3 +1174,43 @@ Append a `## Deferred to follow-up` section to this plan listing: (a) Williams &
 git add docs/superpowers/plans/2026-06-13-econetpy-audit-remediation.md
 git commit -m "docs: record deferred follow-up items in remediation plan"
 ```
+
+---
+
+## Deferred to follow-up
+
+The following items were identified during the audit/remediation but are intentionally
+out of scope for this plan. They are recorded here so the structural follow-up plan can
+pick them up. None of them block the live app on its default inputs.
+
+- **(a) Williams & Martinez (2004) short-weighted trophic level — replace the TL clamp stopgap.**
+  `network_analysis.py:91-104` currently detects an ill-conditioned `(I - diet)` solve and
+  *clamps* non-physical trophic levels to `[1, 100]` to avoid a NaN cascade into the viz layer
+  (Task 6). This is a stopgap. The proper fix is to compute the short-weighted trophic level
+  (Williams & Martinez 2004) — the average of the shortest and prey-averaged paths to a basal
+  node — which is well-defined on cyclic webs and removes the need for the clamp. Replacing the
+  clamp is a metric-definition change and must be done under TDD with hand-computed pins on
+  cyclic and acyclic webs.
+
+- **(b) Full `@safe_render` error-handling convention + narrow the bare `except:` at `network_analysis.py:167`.**
+  Phase 1 added only a single *targeted* try/except around the flux calculation (Task 5). The
+  broader convention — a `@safe_render` decorator wrapping every analytical render function so a
+  failure shows a clean notification instead of a raw traceback — is deferred. As part of this,
+  narrow the bare `except:` at `network_analysis.py:167` to the specific exception type(s) it is
+  meant to catch (a bare `except:` also swallows `KeyboardInterrupt`/`SystemExit`).
+
+- **(c) Reactive-CPU refactor (`colors_cached` / `mti_cached` / `_build_network`).**
+  Several render functions recompute functional-group colors, the MTI matrix, and the pyvis
+  network from scratch on every reactive invalidation. Hoisting these into memoized reactive
+  calcs (`colors_cached`, `mti_cached`, `_build_network`) would cut redundant CPU work. This is a
+  structural reactive-architecture change explicitly held out of the current plan's scope.
+
+- **(d) `bioms_losses` validator-asymmetry parameter (latent footgun; non-urgent).**
+  `fluxing()` and `validate_flux_equilibrium()` can disagree about whether losses are scaled by
+  biomass (`bioms_losses`). The live app always uses the default, so the two are consistent in
+  production, but the parameter is a latent footgun if a caller ever overrides it on one side and
+  not the other. Thread the flag through (or otherwise enforce agreement) in the follow-up.
+
+- **(e) Remove the unused `import pandas as pd` in `conftest.py`.**
+  `conftest.py:4` imports pandas (`import pandas as pd`) but no fixture references `pd`. Drop the
+  unused import. Trivial; deferred only to keep this plan's commits scoped.
