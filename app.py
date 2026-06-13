@@ -540,7 +540,7 @@ app_ui = ui.page_fluid(
             ),
             ui.div(
                 {"class": "footer-right"},
-                ui.HTML("Version 1.0.0 | Python Shiny")
+                ui.HTML(f"Version {(Path(__file__).parent / 'VERSION').read_text(encoding='utf-8').strip() if (Path(__file__).parent / 'VERSION').exists() else 'unknown'} | Python Shiny"),
             )
         )
     ),
