@@ -13,14 +13,12 @@ import numpy as np
 import pandas as pd
 import networkx as nx
 from scipy.linalg import inv
-from typing import Dict, Tuple, List
+from typing import Dict, List
 import warnings
 
 # Import flux calculation functions
 from flux_calculations import (
-    fluxing,
     calculate_losses_allometric,
-    validate_flux_equilibrium
 )
 
 # ============================================================================
@@ -357,10 +355,6 @@ def calculate_flux_indicators(flux_matrix: np.ndarray, loop: bool = False) -> Di
 
     LD = (1 / (2 * tot_mat)) * (np.sum(sum_in * N_res) + np.sum(sum_out * N_con)) if tot_mat > 0 else 0
     lwC = LD / (no_species if loop else (no_species - 1)) if no_species > 1 else 0
-
-    # Positional index
-    denominator = sum_in * N_res + sum_out * N_con
-    pos_ind = np.where(denominator > 0, (sum_in * N_res) / denominator, 0)
 
     # Weighted quantitative Generality
     lwG = np.sum(sum_in * N_res) / tot_mat if tot_mat > 0 else 0

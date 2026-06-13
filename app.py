@@ -8,7 +8,6 @@ Optimized: Reduced stabilization iterations to 1000 for faster network loading.
 """
 
 from shiny import App, ui, render, reactive
-from shiny.types import ImgData
 import pandas as pd
 import numpy as np
 import networkx as nx
@@ -16,9 +15,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from pathlib import Path
 import pickle
-import json
 import time
-from typing import Dict, List, Tuple, Optional
 import shinyswatch
 
 # Import custom modules
@@ -30,7 +27,6 @@ from network_analysis import (
     calculate_flux_indicators,
     calculate_mti,
     calculate_keystoneness,
-    COLOR_SCHEME,
     FLUX_CONVERSION_FACTOR
 )
 
@@ -86,6 +82,7 @@ def load_default_data():
 
 def create_example_network():
     """Create a simple example food web network for demonstration."""
+    rng = np.random.default_rng(0)
     # Create a simple 10-node example network
     G = nx.DiGraph()
 
@@ -107,12 +104,12 @@ def create_example_network():
         'species': nodes,
         'fg': ['Phytoplankton', 'Phytoplankton', 'Detritus', 'Zooplankton', 'Zooplankton',
                'Fish', 'Fish', 'Benthos', 'Fish', 'Fish'],
-        'meanB': np.random.uniform(10, 100, 10),
-        'bodymasses': np.random.uniform(0.001, 10, 10),
+        'meanB': rng.uniform(10, 100, 10),
+        'bodymasses': rng.uniform(0.001, 10, 10),
         'met.types': ['Other', 'Other', 'Other', 'invertebrates', 'invertebrates',
                       'ectotherm vertebrates', 'ectotherm vertebrates', 'invertebrates',
                       'ectotherm vertebrates', 'ectotherm vertebrates'],
-        'efficiencies': np.random.uniform(0.1, 0.85, 10)
+        'efficiencies': rng.uniform(0.1, 0.85, 10)
     })
 
     return G, info
@@ -880,7 +877,6 @@ Network Statistics:
                 colors=node_colors,
                 height=f"{height}px"
             )
-            filename = "topology_network.html"
         else:
             # Flux-weighted network
             if flux_results() is None:
@@ -896,7 +892,6 @@ Network Statistics:
                 flux_matrix=flux_matrix,
                 height=f"{height}px"
             )
-            filename = "flux_network.html"
 
         return render_network(net, height=f"{height}px", width="100%")
 
@@ -1027,6 +1022,7 @@ Node-Weighted Network Indicators:
     @render.plot
     def biomass_by_group():
         info = current_species_info()
+        _, color_map = get_functional_group_colors(info["fg"].tolist())
 
         fig, ax = plt.subplots(figsize=(8, 6))
 
@@ -1049,6 +1045,7 @@ Node-Weighted Network Indicators:
     @render.plot
     def biomass_distribution():
         info = current_species_info()
+        _, color_map = get_functional_group_colors(info["fg"].tolist())
 
         fig, ax = plt.subplots(figsize=(10, 6))
 
