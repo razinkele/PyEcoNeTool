@@ -257,8 +257,6 @@ def validate_flux_equilibrium(
             'imbalances': Vector of imbalances for each species
             'max_imbalance': Maximum absolute imbalance
     """
-    n = flux_matrix.shape[0]
-
     # Prey-level steady state: assimilated incoming flux to consumer i equals
     # its outflow to predators plus losses.
     #   assimilated_in_i = sum_k e_k * flux[k,i]  =  (flux.T @ e)_i
