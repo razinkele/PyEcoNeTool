@@ -85,6 +85,18 @@ def test_collect_system_context_defaults_to_unknown_when_inputs_empty(tmp_path):
     assert ctx["edge_count"] == 0
 
 
+def test_collect_system_context_empty_version_file(tmp_path):
+    """An empty VERSION file must yield 'unknown', not raise IndexError."""
+    from feedback_reporter import collect_system_context
+    vfile = tmp_path / "VERSION"
+    vfile.write_text("", encoding="utf-8")
+    ctx = collect_system_context(
+        current_tab="x", browser_info="x", user_level="x", language="x",
+        species_count=0, edge_count=0, version_path=str(vfile),
+    )
+    assert ctx["app_version"] == "unknown", ctx
+
+
 # ---------------------------------------------------------------------------
 # save_feedback_local
 # ---------------------------------------------------------------------------
