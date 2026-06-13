@@ -748,7 +748,7 @@ def server(input, output, session):
         except ValueError as exc:
             ui.notification_show(f"Validation error: {exc}", type="warning", duration=5)
             return
-        except Exception as exc:
+        except Exception:
             logger.exception("feedback submission failed")
             ui.notification_show("Submission failed, please try again.", type="error", duration=6)
             return
