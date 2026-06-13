@@ -306,6 +306,34 @@ def test_mti_matrix_diagonal_zero(simple_linear_chain):
     assert np.allclose(np.diag(mti), 0), "MTI diagonal should be zero"
 
 
+def test_mti_two_species_predator_prey():
+    """1 prey (0) eaten by 1 predator (1). Hand-computed total impacts:
+    MTI[0,1] = impact of species 1 (predator) on 0 (prey) = -0.5
+    MTI[1,0] = impact of species 0 (prey) on 1 (predator) = +0.5"""
+    import numpy as np, networkx as nx
+    from network_analysis import calculate_mti
+
+    G = nx.DiGraph()
+    G.add_nodes_from([0, 1])
+    G.add_edge(0, 1)  # 0 (prey) -> 1 (predator)
+    MTI = calculate_mti(G)
+    assert np.isclose(MTI[0, 1], -0.5), MTI
+    assert np.isclose(MTI[1, 0], 0.5), MTI
+    assert np.allclose(np.diag(MTI), 0.0)
+
+
+def test_keystoneness_two_species_libralato():
+    """With MTI=[[0,-0.5],[0.5,0]] and equal biomass, eps_i = 0.5 for both,
+    p_i = 0.5, so KS_i = log(0.5 * 0.5) = log(0.25)."""
+    import numpy as np, networkx as nx
+    from network_analysis import calculate_keystoneness
+
+    G = nx.DiGraph(); G.add_nodes_from([0, 1]); G.add_edge(0, 1)
+    df = calculate_keystoneness(G, np.array([1.0, 1.0]))
+    assert np.allclose(df["overall_effect"].values, 0.5), df
+    assert np.allclose(df["keystoneness"].values, np.log(0.25)), df
+
+
 def test_mti_signs(simple_linear_chain):
     """Test MTI matrix has expected signs"""
     G, info = simple_linear_chain
@@ -414,6 +442,32 @@ def test_full_workflow(simple_omnivory):
 
     # Check omnivory is detected
     assert topo['Omni'] > 0, "Omnivory should be detected in omnivory network"
+
+
+def test_trophic_levels_finite_on_cycles():
+    """Cyclic / dense webs must yield finite, physical (1 <= TL <= 100) levels,
+    never huge (~1e16) or negative values. Covers the dangerous ill-conditioned
+    (not exactly singular) case where np.linalg.solve silently returns 1e16."""
+    import numpy as np, networkx as nx
+    from network_analysis import calculate_trophic_levels
+    cases = [
+        [(0, 1), (1, 0)],                                            # 2-cycle
+        [(0, 1), (1, 2), (2, 0)],                                    # 3-cycle
+        [(i, j) for i in range(4) for j in range(4) if i != j],     # fully connected
+    ]
+    for edges in cases:
+        G = nx.DiGraph(); G.add_nodes_from(range(4)); G.add_edges_from(edges)
+        tl = calculate_trophic_levels(G)
+        assert np.all(np.isfinite(tl)), (edges, tl)
+        assert np.all(tl >= 1) and np.all(tl <= 100), (edges, tl)
+
+
+def test_trophic_levels_chain_unchanged():
+    """Linear chain 0->1->2 still gives 1,2,3 (no regression vs old loop)."""
+    import numpy as np, networkx as nx
+    from network_analysis import calculate_trophic_levels
+    G = nx.DiGraph(); G.add_nodes_from([0,1,2]); G.add_edge(0,1); G.add_edge(1,2)
+    assert np.allclose(calculate_trophic_levels(G), [1, 2, 3])
 
 
 if __name__ == "__main__":

@@ -468,6 +468,42 @@ def test_complete_flux_workflow(omnivory_network):
         f"System should be near equilibrium, got imbalance: {validation['max_imbalance']}"
 
 
+def test_fluxing_prey_level_satisfies_energy_balance():
+    """On an A->B->C chain the solved fluxes must satisfy the prey-level
+    steady-state balance F_i*(W.T@e)_i - (W@F)_i - L_i == 0 for consumers."""
+    import numpy as np
+    from flux_calculations import fluxing
+
+    mat = np.array([[0, 1, 0], [0, 0, 1], [0, 0, 0]], float)  # 0->1->2
+    L = np.array([2.0, 3.0, 5.0])
+    e = np.array([0.5, 0.6, 0.7])
+
+    flux = fluxing(mat, losses=L, efficiencies=e, ef_level="prey")
+
+    W = mat.copy()
+    cs = W.sum(0); cs[cs == 0] = 1; W = W / cs
+    F = flux.sum(axis=0)                      # per-node intake = column sums
+    residual = F * (W.T @ e) - (W @ F) - L
+    # Node 0 is basal: W[:,0] is all-zero, so flux.sum(axis=0)[0] == 0 regardless
+    # of the solver's F[0]. The node-0 residual is therefore vacuous here; only the
+    # consumer equations (nodes 1, 2) are independently meaningful.
+    assert abs(residual[1]) < 1e-9, residual
+    assert abs(residual[2]) < 1e-9, residual
+
+
+def test_validate_flux_equilibrium_passes_on_correct_fluxes():
+    """After the fluxing fix, the validator must report balanced=True on the
+    solver's own output (consumer nodes balanced to ~0)."""
+    import numpy as np
+    from flux_calculations import fluxing, validate_flux_equilibrium
+    mat = np.array([[0, 1, 0], [0, 0, 1], [0, 0, 0]], float)
+    L = np.array([2.0, 3.0, 5.0]); e = np.array([0.5, 0.6, 0.7])
+    flux = fluxing(mat, losses=L, efficiencies=e, ef_level="prey")
+    v = validate_flux_equilibrium(flux, losses=L, efficiencies=e)
+    assert v["balanced"] is True, v
+    assert v["max_imbalance"] < 1e-9, v
+
+
 if __name__ == "__main__":
     # Run tests with pytest
     pytest.main([__file__, '-v', '--tb=short'])

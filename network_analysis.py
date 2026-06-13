@@ -13,14 +13,12 @@ import numpy as np
 import pandas as pd
 import networkx as nx
 from scipy.linalg import inv
-from typing import Dict, Tuple, List
+from typing import Dict, List
 import warnings
 
 # Import flux calculation functions
 from flux_calculations import (
-    fluxing,
     calculate_losses_allometric,
-    validate_flux_equilibrium
 )
 
 # ============================================================================
@@ -77,39 +75,33 @@ def calculate_trophic_levels(G: nx.DiGraph) -> np.ndarray:
     if n == 0:
         raise ValueError("Network contains no vertices")
 
-    # Initialize all to TL = 1
-    tl = np.ones(n)
-
     # Get adjacency matrix
     # In NetworkX: adj[i,j] = 1 means edge from node i to node j
     # For food webs where edges go prey→predator: adj[i,j] = i is eaten by j
     nodes = list(G.nodes())
     adj = nx.to_numpy_array(G, nodelist=nodes)
 
-    # Iterate until convergence
-    converged = False
-    for iteration in range(TROPHIC_LEVEL_MAX_ITER):
-        tl_old = tl.copy()
+    # Short-weighted / prey-averaged trophic level via linear solve.
+    # For binary adjacency, diet fractions are uniform (1/#prey), so this is
+    # identical to "1 + mean(TL of prey)" for acyclic webs but is stable on cycles.
+    col_sums = adj.sum(axis=0)
+    col_sums_safe = np.where(col_sums == 0, 1, col_sums)
+    # diet[i,j] = fraction of predator i's diet that is prey j
+    diet = (adj / col_sums_safe[np.newaxis, :]).T
+    A = np.eye(n) - diet
+    try:
+        tl = np.linalg.solve(A, np.ones(n))
+    except np.linalg.LinAlgError:
+        warnings.warn("Trophic-level system singular; using pseudo-inverse")
+        tl = np.linalg.lstsq(A, np.ones(n), rcond=None)[0]
 
-        for i in range(n):
-            # Find prey of species i (edges going FROM prey TO predator i)
-            # Column i represents edges going TO node i (prey being eaten by i)
-            prey_indices = np.where(adj[:, i] > 0)[0]
-
-            if len(prey_indices) > 0:
-                # TL = 1 + mean TL of prey
-                tl[i] = 1 + np.mean(tl[prey_indices])
-            else:
-                # Basal species (no prey)
-                tl[i] = 1
-
-        # Check for convergence
-        if np.max(np.abs(tl - tl_old)) < TROPHIC_LEVEL_CONVERGENCE:
-            converged = True
-            break
-
-    if not converged:
-        warnings.warn(f"Trophic level calculation did not converge after {TROPHIC_LEVEL_MAX_ITER} iterations")
+    # Dense cycles make (I - diet) singular OR merely ill-conditioned. In the
+    # ill-conditioned case np.linalg.solve does NOT raise and silently returns
+    # values like 1e16; cycles can also produce TL < 1 or negative. Trophic
+    # levels are physically >= 1, so flag and clamp non-physical results.
+    if not np.all(np.isfinite(tl)) or np.any(tl < 1) or np.any(tl > 100):
+        warnings.warn("Trophic levels non-physical (likely a cyclic web); clamped to [1, 100]")
+        tl = np.clip(np.nan_to_num(tl, nan=1.0, posinf=100.0, neginf=1.0), 1.0, 100.0)
 
     return tl
 
@@ -187,7 +179,11 @@ def get_topological_indicators(G: nx.DiGraph) -> Dict[str, float]:
 
     # Standard deviation of prey TL for each predator (across rows, for each column)
     # axis=0 aggregates rows (calculates SD of prey TL for each predator column)
-    omninodes = np.nanstd(webtl, axis=0)
+    with warnings.catch_warnings():
+        # ddof=1 makes single-prey predators yield NaN (intended exclusion);
+        # that emits a benign "Degrees of freedom <= 0" RuntimeWarning.
+        warnings.simplefilter("ignore", RuntimeWarning)
+        omninodes = np.nanstd(webtl, axis=0, ddof=1)
     Omni = np.nanmean(omninodes)
 
     return {
@@ -360,10 +356,6 @@ def calculate_flux_indicators(flux_matrix: np.ndarray, loop: bool = False) -> Di
     LD = (1 / (2 * tot_mat)) * (np.sum(sum_in * N_res) + np.sum(sum_out * N_con)) if tot_mat > 0 else 0
     lwC = LD / (no_species if loop else (no_species - 1)) if no_species > 1 else 0
 
-    # Positional index
-    denominator = sum_in * N_res + sum_out * N_con
-    pos_ind = np.where(denominator > 0, (sum_in * N_res) / denominator, 0)
-
     # Weighted quantitative Generality
     lwG = np.sum(sum_in * N_res) / tot_mat if tot_mat > 0 else 0
 
@@ -386,8 +378,10 @@ def calculate_mti(G: nx.DiGraph) -> np.ndarray:
     Calculate Mixed Trophic Impact (MTI) matrix.
 
     Computes the direct and indirect impacts of each species on all others
-    using the ECOPATH approach. MTI represents the net effect of increasing
-    the biomass of one species on all other species in the food web.
+    using the Ulanowicz & Puccia (1990) formulation: Q = DC - PD^T, where DC
+    is the column-normalized diet matrix and PD the row-normalized predation
+    distribution; MTI = (I - Q)^-1 @ Q with the diagonal zeroed. MTI represents
+    the net effect of increasing the biomass of one species on all others.
 
     Args:
         G: NetworkX DiGraph representing the food web
@@ -409,38 +403,37 @@ def calculate_mti(G: nx.DiGraph) -> np.ndarray:
     nodes = list(G.nodes())
     adj_matrix = nx.to_numpy_array(G, nodelist=nodes)
 
-    # Create Diet Composition (DC) matrix
-    # DC[i,j] = proportion of predator i's diet that is prey j
-    DC = np.zeros((n, n))
+    # Diet composition: DC[i,j] = fraction of predator j's diet that is prey i
+    # (column-normalized; columns are predators)
+    col_sums = np.sum(adj_matrix, axis=0)
+    col_sums_safe = np.where(col_sums == 0, 1, col_sums)
+    DC = adj_matrix / col_sums_safe[np.newaxis, :]
 
-    # Calculate row sums (total consumption per predator)
+    # Predation distribution: PD[i,j] = fraction of prey i's mortality
+    # due to predator j (row-normalized; rows are prey)
     row_sums = np.sum(adj_matrix, axis=1)
+    row_sums_safe = np.where(row_sums == 0, 1, row_sums)
+    PD = adj_matrix / row_sums_safe[:, np.newaxis]
 
-    # Normalize each row by its sum (if non-zero)
-    for i in range(n):
-        if row_sums[i] > 0:
-            DC[i, :] = adj_matrix[i, :] / row_sums[i]
+    # Net direct impact of i on j: positive as food (DC) minus negative as
+    # predator (PD transposed):  Q[i,j] = DC[i,j] - PD[j,i]
+    Q = DC - PD.T
 
-    # Create identity matrix
     I = np.eye(n)
-
-    # Calculate (I - DC)^(-1)
-    I_minus_DC = I - DC
-
-    # Check if matrix is invertible
-    if np.abs(np.linalg.det(I_minus_DC)) < 1e-10:
-        warnings.warn("Diet composition matrix is singular or near-singular. Using pseudo-inverse.")
-        I_minus_DC_inv = np.linalg.pinv(I_minus_DC)
+    I_minus_Q = I - Q
+    if np.abs(np.linalg.det(I_minus_Q)) < 1e-10:
+        warnings.warn("(I - Q) is singular or near-singular. Using pseudo-inverse.")
+        inv_I_minus_Q = np.linalg.pinv(I_minus_Q)
     else:
-        I_minus_DC_inv = inv(I_minus_DC)
+        inv_I_minus_Q = inv(I_minus_Q)
 
-    # Calculate MTI matrix
-    MTI = -I_minus_DC_inv @ DC
+    # M[i,j] = total (direct + indirect) impact of i on j (pre-transpose;
+    # the return value below transposes to MTI[i,j] = impact of j on i)
+    M = inv_I_minus_Q @ Q
+    np.fill_diagonal(M, 0)
 
-    # Set diagonal to 0
-    np.fill_diagonal(MTI, 0)
-
-    return MTI
+    # Preserve existing convention: MTI[i,j] = impact of j on i
+    return M.T
 
 
 # ============================================================================
@@ -473,28 +466,29 @@ def calculate_keystoneness(G: nx.DiGraph, biomass: np.ndarray) -> pd.DataFrame:
     # Calculate MTI matrix
     MTI = calculate_mti(G)
 
-    # Calculate overall effect (sum of absolute MTI values for each impactor)
-    overall_effect = np.sum(np.abs(MTI), axis=0)
+    # Overall effect epsilon_i = L2 norm of species i's impacts.
+    # MTI[i,j] = impact of j on i, so species i's impacts are column i.
+    overall_effect = np.sqrt(np.sum(MTI ** 2, axis=0))
 
-    # Calculate relative biomass
+    # Relative biomass p_i
     total_biomass = np.sum(biomass)
     relative_biomass = biomass / total_biomass if total_biomass > 0 else biomass
 
-    # Calculate keystoneness index
-    keystoneness = np.log(1 + overall_effect) / np.log(1 + relative_biomass)
+    # Libralato (2006) keystoneness index: KS_i = log(eps_i * (1 - p_i))
+    with np.errstate(divide="ignore", invalid="ignore"):
+        keystoneness = np.log(overall_effect * (1.0 - relative_biomass))
+    keystoneness[~np.isfinite(keystoneness)] = np.nan
 
-    # Handle infinite or undefined values
-    keystoneness[np.isinf(keystoneness)] = np.nan
-    keystoneness[np.isnan(keystoneness)] = np.nan
-
-    # Classify species
+    # Classify relative to the median KS (high impact) and a biomass threshold.
+    finite = keystoneness[np.isfinite(keystoneness)]
+    ks_threshold = np.median(finite) if finite.size else np.nan
     keystone_status = []
     for i in range(len(keystoneness)):
         if np.isnan(keystoneness[i]):
             keystone_status.append("Undefined")
-        elif keystoneness[i] > 1 and relative_biomass[i] < 0.05:
+        elif keystoneness[i] >= ks_threshold and relative_biomass[i] < 0.05:
             keystone_status.append("Keystone")
-        elif keystoneness[i] > 0 and relative_biomass[i] >= 0.05:
+        elif keystoneness[i] >= ks_threshold and relative_biomass[i] >= 0.05:
             keystone_status.append("Dominant")
         else:
             keystone_status.append("Rare")

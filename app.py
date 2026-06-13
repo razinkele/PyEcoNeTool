@@ -8,7 +8,6 @@ Optimized: Reduced stabilization iterations to 1000 for faster network loading.
 """
 
 from shiny import App, ui, render, reactive
-from shiny.types import ImgData
 import pandas as pd
 import numpy as np
 import networkx as nx
@@ -16,9 +15,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from pathlib import Path
 import pickle
-import json
 import time
-from typing import Dict, List, Tuple, Optional
 import shinyswatch
 
 # Import custom modules
@@ -30,7 +27,6 @@ from network_analysis import (
     calculate_flux_indicators,
     calculate_mti,
     calculate_keystoneness,
-    COLOR_SCHEME,
     FLUX_CONVERSION_FACTOR
 )
 
@@ -47,6 +43,9 @@ from network_viz import (
 from pyvis.shiny import render_network
 
 from feedback_reporter import collect_system_context, submit_feedback
+
+import logging
+logger = logging.getLogger("econetpy.app")
 
 # ============================================================================
 # DATA LOADING
@@ -83,6 +82,7 @@ def load_default_data():
 
 def create_example_network():
     """Create a simple example food web network for demonstration."""
+    rng = np.random.default_rng(0)
     # Create a simple 10-node example network
     G = nx.DiGraph()
 
@@ -104,12 +104,12 @@ def create_example_network():
         'species': nodes,
         'fg': ['Phytoplankton', 'Phytoplankton', 'Detritus', 'Zooplankton', 'Zooplankton',
                'Fish', 'Fish', 'Benthos', 'Fish', 'Fish'],
-        'meanB': np.random.uniform(10, 100, 10),
-        'bodymasses': np.random.uniform(0.001, 10, 10),
+        'meanB': rng.uniform(10, 100, 10),
+        'bodymasses': rng.uniform(0.001, 10, 10),
         'met.types': ['Other', 'Other', 'Other', 'invertebrates', 'invertebrates',
                       'ectotherm vertebrates', 'ectotherm vertebrates', 'invertebrates',
                       'ectotherm vertebrates', 'ectotherm vertebrates'],
-        'efficiencies': np.random.uniform(0.1, 0.85, 10)
+        'efficiencies': rng.uniform(0.1, 0.85, 10)
     })
 
     return G, info
@@ -540,7 +540,7 @@ app_ui = ui.page_fluid(
             ),
             ui.div(
                 {"class": "footer-right"},
-                ui.HTML("Version 1.0.0 | Python Shiny")
+                ui.HTML(f"Version {(Path(__file__).parent / 'VERSION').read_text(encoding='utf-8').strip() if (Path(__file__).parent / 'VERSION').exists() else 'unknown'} | Python Shiny"),
             )
         )
     ),
@@ -559,6 +559,18 @@ def server(input, output, session):
     current_network = reactive.Value(network)
     current_species_info = reactive.Value(species_info)
     flux_results = reactive.Value(None)
+
+    @reactive.calc
+    def trophic_levels_cached():
+        return calculate_trophic_levels(current_network())
+
+    @reactive.calc
+    def mti_cached():
+        return calculate_mti(current_network())
+
+    @reactive.calc
+    def keystoneness_cached():
+        return calculate_keystoneness(current_network(), current_species_info()["meanB"].values)
     current_page = reactive.Value("dashboard")
     last_feedback_submit = reactive.Value(None)  # epoch seconds; rate-limit guard
 
@@ -661,8 +673,8 @@ def server(input, output, session):
                 ),
                 ui.tags.small(
                     {"class": "text-muted", "style": "display:block; margin-top:8px;"},
-                    "System info (app version, current tab, browser, species and edge counts) "
-                    "will be attached automatically. No personal data is collected.",
+                    "System info (app version, current tab, browser User-Agent, species and edge counts) "
+                    "will be attached automatically to help diagnose issues.",
                 ),
                 ui.tags.script(
                     "setTimeout(function(){if(typeof Shiny!=='undefined'){"
@@ -736,8 +748,9 @@ def server(input, output, session):
         except ValueError as exc:
             ui.notification_show(f"Validation error: {exc}", type="warning", duration=5)
             return
-        except Exception as exc:
-            ui.notification_show(f"Submission failed: {exc}", type="error", duration=8)
+        except Exception:
+            logger.exception("feedback submission failed")
+            ui.notification_show("Submission failed, please try again.", type="error", duration=6)
             return
 
         last_feedback_submit.set(now)
@@ -864,7 +877,6 @@ Network Statistics:
                 colors=node_colors,
                 height=f"{height}px"
             )
-            filename = "topology_network.html"
         else:
             # Flux-weighted network
             if flux_results() is None:
@@ -880,9 +892,32 @@ Network Statistics:
                 flux_matrix=flux_matrix,
                 height=f"{height}px"
             )
-            filename = "flux_network.html"
 
         return render_network(net, height=f"{height}px", width="100%")
+
+    @render.download(filename="econetool_network.html")
+    def download_network():
+        G = current_network()
+        info = current_species_info()
+        node_colors, _ = get_functional_group_colors(info['fg'].tolist())
+        if input.network_type() == "Flux-Weighted" and flux_results() is not None:
+            net = create_flux_network(
+                G,
+                species_names=info['species'].tolist(),
+                functional_groups=info['fg'].tolist(),
+                biomass=info['meanB'].values,
+                colors=node_colors,
+                flux_matrix=flux_results()['flux_matrix'],
+            )
+        else:
+            net = create_topology_network(
+                G,
+                species_names=info['species'].tolist(),
+                functional_groups=info['fg'].tolist(),
+                biomass=info['meanB'].values,
+                colors=node_colors,
+            )
+        yield net.generate_html()
 
     @output
     @render.plot
@@ -935,8 +970,7 @@ Topological Network Indicators:
     @output
     @render.plot
     def trophic_level_histogram():
-        G = current_network()
-        tl = calculate_trophic_levels(G)
+        tl = trophic_levels_cached()
 
         fig, ax = plt.subplots(figsize=(8, 6))
         ax.hist(tl, bins=20, edgecolor='black', color='skyblue')
@@ -951,9 +985,8 @@ Topological Network Indicators:
     @output
     @render.data_frame
     def trophic_levels_table():
-        G = current_network()
         info = current_species_info()
-        tl = calculate_trophic_levels(G)
+        tl = trophic_levels_cached()
 
         df = pd.DataFrame({
             'Species': info['species'],
@@ -989,6 +1022,7 @@ Node-Weighted Network Indicators:
     @render.plot
     def biomass_by_group():
         info = current_species_info()
+        _, color_map = get_functional_group_colors(info["fg"].tolist())
 
         fig, ax = plt.subplots(figsize=(8, 6))
 
@@ -1011,6 +1045,7 @@ Node-Weighted Network Indicators:
     @render.plot
     def biomass_distribution():
         info = current_species_info()
+        _, color_map = get_functional_group_colors(info["fg"].tolist())
 
         fig, ax = plt.subplots(figsize=(10, 6))
 
@@ -1166,10 +1201,7 @@ Flux-Based Indicators:
     @output
     @render.text
     def keystoneness_summary():
-        G = current_network()
-        info = current_species_info()
-
-        keystoneness_df = calculate_keystoneness(G, info['meanB'].values)
+        keystoneness_df = keystoneness_cached()
 
         n_keystone = (keystoneness_df['keystone_status'] == 'Keystone').sum()
         n_dominant = (keystoneness_df['keystone_status'] == 'Dominant').sum()
@@ -1192,10 +1224,7 @@ Keystoneness Analysis Summary:
     @output
     @render.plot
     def keystoneness_scatter():
-        G = current_network()
-        info = current_species_info()
-
-        keystoneness_df = calculate_keystoneness(G, info['meanB'].values)
+        keystoneness_df = keystoneness_cached()
 
         fig, ax = plt.subplots(figsize=(10, 8))
 
@@ -1242,10 +1271,7 @@ Keystoneness Analysis Summary:
     @output
     @render.data_frame
     def keystoneness_table():
-        G = current_network()
-        info = current_species_info()
-
-        keystoneness_df = calculate_keystoneness(G, info['meanB'].values)
+        keystoneness_df = keystoneness_cached()
 
         # Format for display
         display_df = keystoneness_df.copy()
@@ -1258,10 +1284,9 @@ Keystoneness Analysis Summary:
     @output
     @render.plot
     def mti_heatmap():
-        G = current_network()
         info = current_species_info()
 
-        mti_matrix = calculate_mti(G)
+        mti_matrix = mti_cached()
         labels = info['species'].tolist()
 
         fig, ax = plt.subplots(figsize=(12, 10))
@@ -1298,6 +1323,29 @@ Keystoneness Analysis Summary:
     def species_info_editor():
         info = current_species_info()
         return render.DataGrid(info, editable=True, width="100%")
+
+    @reactive.effect
+    @reactive.event(input.update_species_info)
+    def _apply_species_info_edits():
+        edited = species_info_editor.data_view()  # returns original + user edits
+        if edited is None or edited.empty:
+            ui.notification_show("No edited data to apply.", type="warning", duration=4)
+            return
+        df = edited.copy()
+        # DataGrid returns edited cells as strings; coerce numeric columns back.
+        for col in ("meanB", "bodymasses", "efficiencies"):
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors="coerce")
+        # Reject malformed edits rather than letting NaN crash downstream renders.
+        numeric_cols = [c for c in ("meanB", "bodymasses", "efficiencies") if c in df.columns]
+        if numeric_cols and df[numeric_cols].isna().any().any():
+            ui.notification_show(
+                "Some numeric cells are invalid (non-numeric or blank). Fix them and retry.",
+                type="error", duration=6,
+            )
+            return
+        current_species_info.set(df)
+        ui.notification_show("Species info updated.", type="message", duration=4)
 
 
 # ============================================================================

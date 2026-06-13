@@ -7,9 +7,8 @@ creating interactive network visualizations for food web analysis.
 
 import networkx as nx
 import numpy as np
-import pandas as pd
 from pyvis.network import Network
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Tuple
 from network_analysis import (
     calculate_trophic_levels,
     COLOR_SCHEME,

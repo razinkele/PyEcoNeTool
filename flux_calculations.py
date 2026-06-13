@@ -125,18 +125,18 @@ def fluxing(
         # F_i * sum_j W_ji*e_j = L_i + sum_j W_ij*F_j
         # F_i * sum_j W_ji*e_j - sum_j W_ij*F_j = L_i
         #
-        # In matrix form: (D_e - W.T) @ F = L
+        # In matrix form: (diag(D_e) - W) @ F = L
         # where D_e is diagonal matrix with D_e[i,i] = sum_j W_ji*e_j
 
-        # Calculate D_e: for each species i, sum of (predator consumption * predator efficiency)
-        # D_e[i] = sum over j of W[i,j] * e[i] (efficiency of prey i)
-        D_e = np.sum(W * efficiencies[:, np.newaxis], axis=1)
+        # Calculate D_e: d_i = sum_j W_ji * e_j = (W.T @ e)_i
+        # (efficiency-weighted column combination, NOT row-sum * e_i)
+        D_e = W.T @ efficiencies.astype(float)
 
-        # Handle basal species (no predators) - set D_e to 1 to avoid singularity
+        # Handle basal species (no prey -> column sums to 0) to avoid singularity
         D_e[D_e == 0] = 1
 
-        # Create coefficient matrix: diag(D_e) - W.T
-        A = np.diag(D_e) - W.T
+        # Coefficient matrix: (diag(D_e) - W) @ F = L   (no transpose on W)
+        A = np.diag(D_e) - W
 
         # Solve: A @ F = L
         try:
@@ -152,15 +152,16 @@ def fluxing(
         # e_i * F_i = L_i + sum_j W_ij*F_j
         # e_i * F_i - sum_j W_ij*F_j = L_i
         #
-        # In matrix form: (D_e - W.T) @ F = L
+        # In matrix form: (diag(e) - W) @ F = L
         # where D_e is diagonal matrix with D_e[i,i] = e_i
 
-        # Handle species with no predators (top predators)
-        eff_adj = efficiencies.copy()
-        eff_adj[eff_adj == 0] = 1
-
-        # Create coefficient matrix
-        A = np.diag(eff_adj) - W.T
+        # Basal species (no prey -> normalized column sums to 0) get diagonal 1.
+        # fluxweb grounds basal species by no-prey (colSums(adj)==0), NOT by
+        # efficiency==0 (which leaves a real basal species ungrounded and scales
+        # its solved intake by 1/e_basal).
+        eff_adj = efficiencies.copy().astype(float)
+        eff_adj[W.sum(axis=0) == 0] = 1
+        A = np.diag(eff_adj) - W
 
         # Solve
         try:
@@ -256,28 +257,34 @@ def validate_flux_equilibrium(
             'imbalances': Vector of imbalances for each species
             'max_imbalance': Maximum absolute imbalance
     """
-    n = flux_matrix.shape[0]
+    # Prey-level steady state: assimilated incoming flux to consumer i equals
+    # its outflow to predators plus losses.
+    #   assimilated_in_i = sum_k e_k * flux[k,i]  =  (flux.T @ e)_i
+    #   outflow_i        = sum_j flux[i,j] + L_i
+    inflows = flux_matrix.T @ efficiencies
 
-    # Calculate inflows (prey being consumed)
-    inflows = np.sum(flux_matrix, axis=1) * efficiencies
-
-    # Calculate outflows (consumption by predators + losses)
-    outflows = np.sum(flux_matrix, axis=0)
-
-    # Add losses
     L = losses.copy()
     if biomasses is not None:
         L = L * biomasses
-    outflows = outflows + L
+    outflows = np.sum(flux_matrix, axis=1) + L
 
-    # Calculate imbalances
     imbalances = inflows - outflows
-    max_imbalance = np.max(np.abs(imbalances))
+    # Only species with nonzero ASSIMILATED inflow are subject to this balance.
+    # This consistently excludes (a) basal species (no prey) and (b) consumers
+    # whose prey are all zero-efficiency producers - both are grounded by the
+    # solver's `D_e[D_e==0]=1` step and enforce a different (F = L + outflow)
+    # equation, so checking them here would raise a false alarm.
+    checked = inflows > tolerance
+    if np.any(checked):
+        max_imbalance = float(np.max(np.abs(imbalances[checked])))
+        mean_imbalance = float(np.mean(np.abs(imbalances[checked])))
+    else:
+        max_imbalance = mean_imbalance = 0.0
 
     return {
         'balanced': max_imbalance < tolerance,
         'imbalances': imbalances,
         'max_imbalance': max_imbalance,
-        'mean_imbalance': np.mean(np.abs(imbalances)),
-        'relative_imbalance': max_imbalance / np.mean(outflows) if np.mean(outflows) > 0 else np.inf
+        'mean_imbalance': mean_imbalance,
+        'relative_imbalance': max_imbalance / np.mean(outflows) if np.mean(outflows) > 0 else np.inf,
     }
