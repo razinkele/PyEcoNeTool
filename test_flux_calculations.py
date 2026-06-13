@@ -325,18 +325,21 @@ def test_calculate_losses_metabolic_types():
 
 
 def test_calculate_losses_allometric_pinned_invertebrate():
-    """Closed-form pin for a single invertebrate at M=1.0 g, T=3.5C.
-    Discriminates the Boltzmann constant, the -E/(kT) sign, the x0 intercept,
-    natural-log vs log10, and the +273.15 Kelvin conversion."""
+    """Closed-form pin for invertebrates at M=1.0 g and M=10.0 g, T=3.5C.
+    The M=10 case makes the a*ln(M) body-mass term non-zero, so the test
+    discriminates natural-log vs log10 (the M=1 case alone cannot, since
+    ln(1)=log10(1)=0). Also discriminates the Boltzmann constant, the
+    -E/(kT) sign, the x0 intercept, and the +273.15 Kelvin conversion."""
     boltz = 0.00008617343
     T = 3.5
-    expected = np.exp((-0.29 * np.log(1.0) + 17.17) - 0.69 / (boltz * (273.15 + T)))
+    masses = np.array([1.0, 10.0])
+    expected = np.exp((-0.29 * np.log(masses) + 17.17) - 0.69 / (boltz * (273.15 + T)))
     out = calculate_losses_allometric(
-        bodymasses=np.array([1.0]),
-        met_types=["invertebrates"],
+        bodymasses=masses,
+        met_types=["invertebrates", "invertebrates"],
         temperature=T,
     )
-    assert np.isclose(out[0], expected, rtol=1e-12), (out[0], expected)
+    assert np.allclose(out, expected, rtol=1e-12), (out, expected)
 
 
 # ============================================================================
