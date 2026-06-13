@@ -440,7 +440,12 @@ def calculate_mti(G: nx.DiGraph) -> np.ndarray:
 # KEYSTONENESS ANALYSIS
 # ============================================================================
 
-def calculate_keystoneness(G: nx.DiGraph, biomass: np.ndarray) -> pd.DataFrame:
+def calculate_keystoneness(
+    G: nx.DiGraph,
+    biomass: np.ndarray,
+    impact_quantile: float = 0.75,
+    biomass_quantile: float = 0.25,
+) -> pd.DataFrame:
     """
     Calculate Keystoneness Index.
 
@@ -479,16 +484,20 @@ def calculate_keystoneness(G: nx.DiGraph, biomass: np.ndarray) -> pd.DataFrame:
         keystoneness = np.log10(overall_effect * (1.0 - relative_biomass))
     keystoneness[~np.isfinite(keystoneness)] = np.nan
 
-    # Classify relative to the median KS (high impact) and a biomass threshold.
+    # Valls et al. (2015) per-ecosystem quartile thresholds:
+    #   high impact  = KS >= Q3 of finite keystoneness
+    #   low biomass  = p  <= Q1 of relative biomass
+    # Quantiles are parameterized (impact_quantile / biomass_quantile).
     finite = keystoneness[np.isfinite(keystoneness)]
-    ks_threshold = np.median(finite) if finite.size else np.nan
+    ks_hi = np.quantile(finite, impact_quantile) if finite.size else np.nan
+    bm_lo = np.quantile(relative_biomass, biomass_quantile)
     keystone_status = []
     for i in range(len(keystoneness)):
         if np.isnan(keystoneness[i]):
             keystone_status.append("Undefined")
-        elif keystoneness[i] >= ks_threshold and relative_biomass[i] < 0.05:
+        elif keystoneness[i] >= ks_hi and relative_biomass[i] <= bm_lo:
             keystone_status.append("Keystone")
-        elif keystoneness[i] >= ks_threshold and relative_biomass[i] >= 0.05:
+        elif keystoneness[i] >= ks_hi and relative_biomass[i] > bm_lo:
             keystone_status.append("Dominant")
         else:
             keystone_status.append("Rare")

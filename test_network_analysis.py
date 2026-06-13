@@ -412,6 +412,49 @@ def test_keystoneness_classification():
         "All statuses should be valid"
 
 
+def test_keystoneness_valls_quartile_classification():
+    """Valls et al. (2015): Keystone = KS>=Q3(KS) AND biomass<=Q1(biomass).
+
+    This fixture is engineered so the Valls Q3/Q1 scheme and the OLD
+    median(KS)+hardcoded(p<0.05) scheme DISAGREE on the target species,
+    so the test actually pins Valls instead of passing under either scheme.
+
+    Biomass [5,5,1,5] -> relative biomass [0.3125,0.3125,0.0625,0.3125].
+    sp 2 is the unique lowest-biomass, highest-impact (hub) node:
+      * relative biomass 0.0625 is ABOVE the old hardcoded 0.05 cutoff but
+        AT/BELOW Q1 (=0.25) of the biomass distribution, and
+      * its KS is the maximum, so KS >= Q3.
+    => Valls labels sp 2 "Keystone"; the old median+0.05 scheme labels it
+       "Dominant" (high impact but rel_biomass >= 0.05). Asserting "Keystone"
+       fails under the old impl and passes only under Valls.
+    """
+    import numpy as np, networkx as nx
+    from network_analysis import calculate_keystoneness
+
+    G = nx.DiGraph()
+    G.add_edges_from([(0, 1), (0, 2), (1, 2), (2, 3)])
+    biomass = np.array([5.0, 5.0, 1.0, 5.0])  # sp 2 lowest biomass
+
+    df = calculate_keystoneness(G, biomass)
+    row2 = df[df["species"] == 2].iloc[0]
+
+    # Guard the discriminating property: sp 2's relative biomass is strictly
+    # ABOVE the old 0.05 cutoff (so the old scheme could NOT call it Keystone)
+    # yet AT/BELOW Q1 (so Valls can). If this ever breaks, the test stops
+    # discriminating between the two schemes.
+    p2 = float(row2["relative_biomass"])
+    q1 = float(np.quantile(df["relative_biomass"].to_numpy(), 0.25))
+    assert p2 > 0.05, (p2, df)
+    assert p2 <= q1, (p2, q1, df)
+
+    # Valls: sp 2 (KS >= Q3 AND p <= Q1) -> Keystone. Under the old
+    # median+0.05 scheme this same species is "Dominant", so this assertion
+    # is the red/green hinge that pins the Valls quartile logic.
+    assert row2["keystone_status"] == "Keystone", df
+    assert set(df["keystone_status"]).issubset(
+        {"Keystone", "Dominant", "Rare", "Undefined"}), df
+
+
 # ============================================================================
 # INTEGRATION TESTS
 # ============================================================================
