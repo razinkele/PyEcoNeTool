@@ -1,7 +1,7 @@
 # EconetPy Structural Hardening — Design Spec
 
-**Date:** 2026-06-13
-**Status:** Approved (design), pending spec review
+**Date:** 2026-06-13 (revised 2026-06-14 after multi-angle spec review)
+**Status:** Approved (design), revised per spec review, pending final user review
 **Predecessor:** `docs/superpowers/plans/2026-06-13-econetpy-audit-remediation.md` (the four items below are its "Deferred to follow-up" section)
 
 ## Goal
@@ -10,25 +10,26 @@ Land the four deferred structural items from the audit remediation, **without ch
 
 - **(a) Selectable trophic-level method** — expose Williams & Martinez (2004) short-weighted TL alongside the existing prey-averaged TL, defaulting to prey-averaged.
 - **(b) `@safe_render` error-handling convention** — analytical render functions surface a clean message instead of a raw traceback; narrow the one bare `except:`.
-- **(c) Reactive-CPU refactor** — compute trophic levels, MTI, and functional-group colors once per change and thread them down, eliminating the 4–6× redundant linear solves per interaction.
+- **(c) Reactive-CPU refactor** — extend the existing per-session caches and thread their values down, eliminating the remaining redundant linear solves per interaction.
 - **(d) Validator `bioms_losses` parameter** — `validate_flux_equilibrium` mirrors the solver's biomass-scaling flag (close the latent footgun).
 
 ## Non-Goals (YAGNI)
 
 - No trophic-level metrics beyond prey-averaged and short-weighted.
 - No caching beyond TL / MTI / colors.
-- `@safe_render` only on renderers that perform computation (not on the trivial count/legend/title text renderers).
+- `@safe_render` only on renderers that perform computation (not on the trivial count/legend/title text renderers). No `@render.data_frame` kind — none of the 13 targeted renderers use it.
 - No change to the prey-averaged default behavior, so all 84 existing tests remain green; new tests are additive.
 
-## Current State (as of master @ 568226b)
+## Current State (verified against master @ 9d790c9)
 
-- `calculate_trophic_levels(G)` — prey-averaged via `(I − diet) TL = 1` linear solve, with explicit ill-conditioning detection (Task 6 of the remediation) and a documented clamp-to-[1,100] stopgap. Edge direction: `G` edge `i→j` means prey `i` is eaten by predator `j`; basal species have in-degree 0 in `G`.
+- `calculate_trophic_levels(G)` — prey-averaged via `(I − diet) TL = 1` linear solve, with explicit ill-conditioning detection (remediation Task 6) and a documented clamp-to-[1,100] stopgap. Edge direction: `G` edge `i→j` means prey `i` is eaten by predator `j`; **basal species have in-degree 0 in `G`**.
 - `get_topological_indicators(G)`, `get_node_weighted_indicators(G, biomass)` — each calls `calculate_trophic_levels(G)` internally.
-- `create_topology_network(...)`, `create_flux_network(...)` — each calls `calculate_trophic_levels(G)` internally for y-positioning.
+- `create_topology_network(...)`, `create_flux_network(...)` — each calls `calculate_trophic_levels(G)` internally for y-positioning, normalizing via `np.min`/`np.max` of the TL vector.
 - `calculate_keystoneness(G, biomass, impact_quantile=0.75, biomass_quantile=0.25)` — calls `calculate_mti(G)` internally.
-- `validate_flux_equilibrium(flux_matrix, losses, efficiencies, biomasses=None, tolerance=1e-6)` — scales `L *= biomasses` whenever `biomasses is not None`; has **no** `bioms_losses` flag (solver does).
+- `validate_flux_equilibrium(flux_matrix, losses, efficiencies, biomasses=None, tolerance=1e-6)` — scales `L *= biomasses` whenever `biomasses is not None`; has **no** `bioms_losses` flag (the solver does).
 - `network_analysis.py:176` — a bare `except:` in `get_topological_indicators` ShortPath computation.
-- `app.py` — 13 "analytical" render functions that compute (`topological_indicators`, `trophic_level_histogram`, `node_weighted_indicators`, `biomass_by_group`, `biomass_distribution`, `flux_indicators`, `flux_heatmap`, `flux_network_plot`, `keystoneness_summary`, `keystoneness_scatter`, `mti_heatmap`, `network_plot`, `adjacency_heatmap`) and ~9 trivial text/ui renderers that do not. `logger` is already configured (`econetpy.app`). `get_functional_group_colors` is recomputed in 6 renderers. Three near-identical pyvis build blocks exist (`network_plot`, `download_network`, `flux_network_plot`).
+- **Caches that ALREADY EXIST** (`app.py:560-569`, from remediation memoization): `trophic_levels_cached()`, `mti_cached()`, `keystoneness_cached()` as `@reactive.calc`. They are wired into the histogram/topology TL consumers (970, 986) and the keystoneness/MTI renderers (1212, 1235, 1282, 1297). **There is no `colors_cached`** — `get_functional_group_colors` is still recomputed in ~5 renderers; and the two pyvis builders + `get_topological_indicators`/`get_node_weighted_indicators` still recompute TL internally rather than consuming `trophic_levels_cached`.
+- `app.py` analytical renderers (13, all compute → may raise): `topological_indicators`, `trophic_level_histogram`, `node_weighted_indicators`, `biomass_by_group`, `biomass_distribution`, `flux_indicators`, `flux_heatmap`, `flux_network_plot`, `keystoneness_summary`, `keystoneness_scatter`, `mti_heatmap`, `network_plot`, `adjacency_heatmap`. `logger` (`econetpy.app`) is already configured. Shiny version is 1.6.1.
 
 ---
 
@@ -36,103 +37,101 @@ Land the four deferred structural items from the audit remediation, **without ch
 
 ### A1. Validator `bioms_losses` parameter (item d)
 
-**Interface change:**
+**Interface change** (new param inserted before `tolerance` — confirmed non-breaking; no caller passes `tolerance` positionally):
 ```
 validate_flux_equilibrium(flux_matrix, losses, efficiencies,
                           biomasses=None, bioms_losses=True, tolerance=1e-6)
 ```
-Scale `L = losses.copy(); if bioms_losses and biomasses is not None: L = L * biomasses` — identical gating to the solver (`flux_calculations.py:117`). The app's call site passes `bioms_losses=True` explicitly (matches the solver's default in the `calculate_fluxes` effect).
+Scale `L = losses.copy(); if bioms_losses and biomasses is not None: L = L * biomasses` — identical gating to the solver (`flux_calculations.py:117`).
 
-**Why:** Today the validator scales on `biomasses is not None` alone, so a caller using `fluxing(bioms_losses=False)` + biomasses gets a validator that checks a different equation. Mirroring the flag removes the asymmetry.
+**Single source of truth at the call site:** in the `calculate_fluxes` effect, hoist `bioms_losses_flag = True` **once** above the try block and pass that *same variable* into both `fluxing(..., bioms_losses=bioms_losses_flag)` and `validate_flux_equilibrium(..., bioms_losses=bioms_losses_flag)`. Do not write two independent `True` literals (that re-creates the asymmetry item d is closing). No UI toggle; do not derive the flag inside the validator.
 
-**Tests:** with `bioms_losses=False` and biomasses supplied, the validator does not scale `L` (pin a case where the old behavior gave a spurious imbalance and the new behavior gives ~0); default path (`bioms_losses=True`) unchanged.
+**Tests:** A→B→C chain, `L=[2,3,5]`, `e=[0.5,0.6,0.7]`, `bm=[10,4,2]`, `flux = fluxing(..., bioms_losses=False)`. Assert `validate_flux_equilibrium(flux, L, e, bm, bioms_losses=False).max_imbalance < tol`; and on the SAME flux, `validate_flux_equilibrium(flux, L, e, bm, bioms_losses=True)` reports a non-trivial imbalance (the flag changes the reported magnitude, since `checked = inflows > tol` is independent of `L`). Default path (`bioms_losses=True`) unchanged.
 
 ### A2. Narrow the bare `except:` (part of item b)
 
-`network_analysis.py:176` `except:` → `except (nx.NetworkXError, nx.NetworkXPointlessConcept, ValueError):` followed by `warnings.warn("Mean shortest path undefined; returning NaN", ...)` before `ShortPath = np.nan`. This stops the clause swallowing `KeyboardInterrupt`/`SystemExit`/`NameError` while preserving the disconnected-graph fallback.
+`network_analysis.py:176` `except:` → `except (nx.NetworkXError, nx.NetworkXPointlessConcept, ValueError):` followed by `warnings.warn("Mean shortest path undefined; returning NaN", ...)` before `ShortPath = np.nan`. Stops swallowing `KeyboardInterrupt`/`SystemExit`/`NameError` while preserving the disconnected-graph fallback.
 
-**Tests:** a disconnected graph still yields a finite ShortPath via the largest-component branch; a single-node graph yields `NaN` and emits the warning (not a silent swallow).
+**Tests:** a disconnected graph still yields a finite ShortPath via the largest-component branch; a single-node graph yields `NaN` and emits the warning.
 
 ---
 
 ## Phase B — TL method + reactive threading (items a + c)
 
-These are co-designed: the TL-method toggle only propagates correctly if TL is computed once and threaded down, which is the reactive refactor's mechanism.
+Co-designed: the TL-method toggle only propagates correctly if TL is computed once (with the chosen method) and threaded down — the reactive refactor's mechanism.
 
 ### B1. Selectable trophic-level method (item a)
 
-**Interface:**
-```
-calculate_trophic_levels(G, method="prey_averaged")   # method in {"prey_averaged", "short_weighted"}
-```
+**Interface:** `calculate_trophic_levels(G, method="prey_averaged")` — `method in {"prey_averaged", "short_weighted"}`.
 
 - `method="prey_averaged"` (default): **current implementation verbatim** — linear solve + ill-conditioning detection + clamp stopgap. No behavior change.
-- `method="short_weighted"`: Williams & Martinez (2004) short-weighted TL:
-  ```
-  SWTL_i = (shortest_TL_i + prey_averaged_TL_i) / 2
-  ```
-  where:
+- `method="short_weighted"`: Williams & Martinez (2004) `SWTL_i = (shortest_TL_i + prey_averaged_TL_i) / 2`, where:
   - `prey_averaged_TL` = the existing solve result.
-  - `shortest_TL_i = 1 + d_i`, with `d_i` = the shortest prey-chain length from species `i` to any basal node. Compute via multi-source BFS: basal nodes (in-degree 0 in `G`) get `d=0`; relax along the prey→predator edges (a predator's `d` = 1 + min over its prey's `d`). Basal-unreachable nodes (e.g. members of a closed cycle with no basal path) → `shortest_TL = NaN`, hence `SWTL = NaN`.
+  - `shortest_TL_i = 1 + d_i`, `d_i` = shortest prey-chain length from `i` to any basal node, via multi-source BFS: basal nodes (in-degree 0 in `G`) get `d=0`; a predator's `d = 1 + min over its prey's d`. **Basal-unreachable nodes** (e.g. a closed cycle with no basal path) → `shortest_TL = NaN`, hence `SWTL = NaN`.
 
-  `shortest_TL` is finite for every basal-reachable node regardless of cycles, so SWTL is bounded where the metric is defined and degrades to NaN (not a misleading clamp) only for genuinely unreachable nodes.
+  Verified: BFS has no off-by-one; basal definition matches the edge direction. `shortest_TL` is finite for every basal-reachable node regardless of cycles, so SWTL is bounded where defined and is NaN (never a misleading clamp) only for genuinely unreachable nodes.
 
-**Invariant:** for acyclic webs, `shortest_TL == prey_averaged_TL` along single chains, so `linear_chain` SWTL == prey-averaged `[1,2,3]`. They diverge only on multi-prey (omnivorous) species: `omnivore_web` (C eats A@1 and B@2) → prey-averaged `TL_C=2.5`, shortest `TL_C=2` (via C→A), so `SWTL_C=2.25`.
+**Invariant:** for acyclic single chains `shortest_TL == prey_averaged_TL`; they diverge on multi-prey (omnivorous) species.
 
-**Tests:** `method="prey_averaged"` identical to today (regression). `method="short_weighted"`: `linear_chain` → `[1,2,3]`; `omnivore_web` → `[1,2,2.25]` (pinned); a producer-anchored web containing a 2-cycle returns finite SWTL where prey-averaged clamps; a basal-unreachable closed cycle returns NaN for those nodes.
+**Tests (numerically pre-verified):**
+- `prey_averaged` identical to today (regression over existing fixtures).
+- `short_weighted` headline pins: `linear_chain` → `[1,2,3]` (≡ prey-averaged); `omnivore_web` (C eats A@1, B@2) → `[1,2,2.25]` (the discriminating pin).
+- `short_weighted` invariants: `np.allclose(SWTL(linear_chain), prey_averaged(linear_chain))`; every in-degree-0 node has `SWTL == 1.0`; multi-basal `A→C, B→C, B→D, C→D` → `SWTL = [1, 1, 2, 2.25]` (A,B basal; D the top omnivore).
+- **Cycle behavior — TWO separate graphs (do NOT conflate "finite SWTL" with "prey-averaged clamps"; they are mutually exclusive):**
+  1. **Basal-reachable cycle** `0→1, 1→2, 2→1` (node 0 basal): `prey_averaged = [1, 4, 5]` (finite, no clamp); assert `SWTL` is all-finite and shorter-chain-biased — `SWTL = [1, 3, 4]`, so `SWTL[1]=3 < prey_averaged[1]=4`. Do NOT assert clamping here.
+  2. **Closed 2-cycle** `(0,1), (1,0)` (no basal): assert `prey_averaged` clamps the cycle nodes (to `[1,100]` via the singular-matrix path) while `SWTL` of those nodes is `NaN`.
 
 ### B2. Optional precomputed arguments (item c, library side)
 
-All backward-compatible — `None` (or omitted) preserves today's behavior by computing internally.
+All backward-compatible — `None`/omitted preserves today's behavior by computing internally.
 
 ```
 get_topological_indicators(G, trophic_levels=None)
 get_node_weighted_indicators(G, biomass, trophic_levels=None)
-create_topology_network(..., trophic_levels=None)
-create_flux_network(..., trophic_levels=None)
+create_topology_network(..., height="600px", trophic_levels=None)      # FINAL param, after height
+create_flux_network(..., flux_matrix, height="600px", trophic_levels=None)  # FINAL param, after height
 calculate_keystoneness(G, biomass, impact_quantile=0.75, biomass_quantile=0.25, mti=None)
 ```
-Each function: `tl = trophic_levels if trophic_levels is not None else calculate_trophic_levels(G)` (and analogously `mti`).
+Each function: `tl = trophic_levels if trophic_levels is not None else calculate_trophic_levels(G)` (analogously `mti`). **`trophic_levels=None` is appended as the final parameter** in both builders (after `height`) to preserve the existing `width`/`height` positional contract and avoid a string-into-`np.min` footgun; optionally made keyword-only via a `*` separator. Verified non-breaking: no existing test or call site passes these positionally.
 
-**Tests (equivalence):** for each function, output is identical whether the value is passed in or computed internally (using a fixture's known TL/MTI). This guards the threading against subtle divergence.
+**Omni tracks the chosen method (by design):** `get_topological_indicators` computes the omnivory index from the threaded `trophic_levels`, so under `short_weighted` it changes consistently with TL — this is correct (omnivory is a function of trophic level, so the metric choice must propagate). For `omnivore_web` under `short_weighted` (`TL=[1,2,2.25]`): `Omni = nanmean([NaN, 0, 0.3125]) = 0.15625` (pinned). The default prey-averaged `Omni=0.125` pin is unchanged.
 
-### B3. App reactive layer + build-network helper (item c, app side)
+**NaN-safe aggregation (short_weighted may inject NaN TL):**
+- `get_topological_indicators` system `TL` already uses `np.nanmean`; the omnivory `nanmean` guard is already present.
+- `get_node_weighted_indicators` **must mask non-finite TL** in the weighted `nwTL` sum (a `nanmean` does not fix a biomass-weighted sum): `m = np.isfinite(tl); nwTL = np.sum((tl*biomass)[m]) / np.sum(biomass[m])`.
 
-In `app.py`, add per-session caches:
-```
-@reactive.calc
-def trophic_levels_cached():
-    return calculate_trophic_levels(current_network(), method=input.tl_method())
+**Tests — SENTINEL equivalence (a known-TL equality test is trivial: passed-in and internal are the *same* function on the *same* graph and prove nothing):**
+For each threaded function, inject a `trophic_levels`/`mti` that **differs** from the internally-computed value (e.g. `[1,2,5]` for a chain whose real TL is `[1,2,3]`; a perturbed MTI for keystoneness) and assert the output **reflects the injected value** (`nwTL`/system-TL shift; topology and flux-network node y-positions shift; keystoneness reflects the injected MTI). Pair each with a `None`-path assertion reproducing the real computed value. Keep all sentinels finite and in-range so they don't trip the short-weighted NaN path.
 
-@reactive.calc
-def mti_cached():
-    return calculate_mti(current_network())
+**Viz NaN handling (network_viz.py) — required so short_weighted NaN TL does not silently flatten the web:**
+`create_topology_network`/`create_flux_network` currently normalize y via `np.min`/`np.max(trophic_levels)`, which return NaN if any TL is NaN, collapsing every node to one row. Change to: `min_tl = np.nanmin(tl)`, `max_tl = np.nanmax(tl)`; guard the per-node y formula with `np.isfinite(tl[i])`; place NaN-TL nodes at a sentinel y (e.g. 0) with a tooltip note and render their TL as `"n/a"` (not the literal `"nan"`). **Test:** pass a `trophic_levels` array containing a NaN and assert the finite nodes still spread across 0–100 (not all-zero) and no node `y` is NaN.
 
-@reactive.calc
-def colors_cached():
-    return get_functional_group_colors(current_species_info()['fg'].tolist())
-```
-Every analytical renderer reads these and passes them down (e.g. `get_topological_indicators(G, trophic_levels=trophic_levels_cached())`, `create_topology_network(..., trophic_levels=trophic_levels_cached())`, the keystoneness renderers reuse `keystoneness_cached` which threads `mti_cached()`). The 6 `get_functional_group_colors` call sites use `colors_cached()`.
+### B3. Extend the existing reactive layer + build-network helper (item c, app side)
 
-A private helper `_build_network(kind, height="600px")` (`kind in {"topology", "flux"}`) consolidates the 3 near-identical pyvis build blocks, reading `current_network`/`current_species_info`/`colors_cached`/`trophic_levels_cached` (and `flux_results` for the flux kind) and returning the `render_network(...)` iframe. `network_plot`, `download_network`, and `flux_network_plot` delegate to it.
+The caches `trophic_levels_cached`/`mti_cached`/`keystoneness_cached` **already exist** (`app.py:560-569`). This phase **extends and fully threads** them — it does not redefine them.
 
-**Tests:** the cached TL respects `input.tl_method()` (covered via the library equivalence tests + a focused test that `calculate_trophic_levels(G, method=...)` is what flows through); no functional change to rendered outputs for the default method (the existing render regression tests stay green).
+- **Extend** `trophic_levels_cached` to honor the toggle: `return calculate_trophic_levels(current_network(), method=input.tl_method())`.
+- **Add** the missing `colors_cached`: `@reactive.calc def colors_cached(): return get_functional_group_colors(current_species_info()['fg'].tolist())`.
+- **Thread** the existing caches into the call sites that still recompute: `get_topological_indicators(G, trophic_levels=trophic_levels_cached())`, `get_node_weighted_indicators(G, biomass, trophic_levels=trophic_levels_cached())`, both builders via the helper, `calculate_keystoneness(..., mti=mti_cached())` (so `keystoneness_cached` does not double-compute MTI), and replace the ~5 `get_functional_group_colors(...)` call sites with `colors_cached()`.
+- A private helper `_build_network(kind, height="600px")` (`kind in {"topology", "flux"}`) consolidates the three near-identical pyvis build blocks (`network_plot`, `download_network`, `flux_network_plot`), reading `current_network`/`current_species_info`/`colors_cached`/`trophic_levels_cached` (and `flux_results` for the flux kind — no reactive-context issue, confirmed) and returning the `render_network(...)` iframe.
+
+**Dedup is structural, not eyeballed — enforce it with a test:** add an AST/grep regression test asserting that after B3 **no analytical-renderer function body** references `calculate_trophic_levels(`, `calculate_mti(`, or `get_functional_group_colors(` directly (they must go through the caches). This is the cheapest insurance against a silent cache bypass. Do not claim runtime call-count verifiability (no `TestClient` flow here); an optional Playwright e2e could prove single-compute at runtime but is not required.
 
 ### B4. UI toggle (item a, app side)
 
-A sidebar control:
+A sidebar control (global, so the metric is consistent across all analysis tabs):
 ```
 ui.input_radio_buttons("tl_method", "Trophic level method",
     {"prey_averaged": "Prey-averaged", "short_weighted": "Short-weighted (W&M 2004)"},
     selected="prey_averaged")
 ```
-Placed in the sidebar (global to all analysis tabs, so the metric is consistent across topology/indicators/viz). `input.tl_method()` feeds `trophic_levels_cached`.
+`input.tl_method()` feeds `trophic_levels_cached`. (Verified: this dependency recomputes on toggle change without over-invalidating.)
 
 ---
 
 ## Phase C — `@safe_render` convention (main of item b)
 
-A decorator factory in `app.py`:
+**Module-scope** decorator factory + helper in `app.py`:
 ```
 def safe_render(kind):  # kind in {"text", "plot", "ui"}
     def decorator(fn):
@@ -142,41 +141,44 @@ def safe_render(kind):  # kind in {"text", "plot", "ui"}
                 return fn(*args, **kwargs)
             except Exception:
                 logger.exception("Render %s failed", fn.__name__)
-                return _error_element(kind)   # text -> str; plot -> mpl Figure with message; ui -> ui.div
+                return _error_element(kind)
         return wrapper
     return decorator
 ```
-Applied **below** the Shiny `@output`/`@render.*` decorators on each of the 13 analytical renderers, e.g.:
+`_error_element(kind)`: `"text"` → a uniform error string; `"plot"` → a matplotlib `Figure` whose axes text holds the message; `"ui"` → a `ui.div`/`ui.Tag` with a stable CSS class. Both `safe_render` and `_error_element` are module-scope (importable/testable in isolation).
+
+**Decorator order (verified correct on Shiny 1.6.1):** `@safe_render` goes **below** `@output`/`@render.*` — i.e. `render.*` wraps the `safe_render`-wrapped function. `functools.wraps` preserves what Shiny needs; this stacking is confirmed to work.
 ```
 @output
 @render.text
 @safe_render("text")
 def topological_indicators(): ...
 ```
-`_error_element(kind)` returns a uniform, friendly message ("This panel could not be computed — see logs.") rendered appropriately per kind. The flux effect's existing targeted try/except (remediation Task 5) remains; `@safe_render` covers the *render* path, the effect covers the *compute-on-click* path — they are complementary.
+Applied to all 13 analytical renderers; the flux effect's existing targeted try/except (remediation Task 5) remains — `@safe_render` covers the *render* path, the effect covers the *compute-on-click* path (complementary).
 
-**Tests:** a renderer monkeypatched to raise returns the uniform error element (assert type/marker), not a propagated exception; `logger.exception` is called. Trivial renderers are untouched.
+**Tests (no full Shiny harness needed):** decorate a plain dummy function (no `@output`/`@render`) that raises, and assert: `"text"` → exact error marker string; `"plot"` → a `Figure` whose axes text contains the marker; `"ui"` → a `ui.Tag` carrying the stable class; and that `logger.exception` fired (via `caplog`). One order guard: wrap a raising dummy in `@render.text` + `@safe_render("text")` and assert `.render()` returns the marker (not a propagated exception).
 
 ---
 
 ## Build Order & Phase Gates
 
-1. **Phase A** (A1, A2) — isolated, no cross-dependencies; full suite green + tag.
-2. **Phase B** (B1 → B2 → B3 → B4) — library first (method + optional args + equivalence tests), then app wiring (caches + helper + toggle); full suite green + manual smoke of the toggle + tag.
-3. **Phase C** — decorator + apply to 13 renderers; full suite green + a forced-failure smoke + tag.
+1. **Phase A** (A1, A2) — isolated; full suite green + tag.
+2. **Phase B** — B1 (method + cycle/invariant tests) → B2 (optional args + sentinel equivalence + NaN-safe aggregation + viz NaN handling) → B3 (extend/thread caches + `_build_network` + AST guard) → B4 (toggle). **B2 and B3 land atomically** (a partially-threaded renderer would bypass the cache). Full suite green + manual toggle smoke + tag.
+3. **Phase C** — decorator + apply to 13 renderers; full suite green + forced-failure smoke + tag.
 
-Each task follows TDD (failing test first for new behavior; equivalence/regression tests for threading); frequent commits; `micromamba run -n shiny python -m pytest` for all test runs.
+Each task follows TDD; frequent commits; `micromamba run -n shiny python -m pytest` for all runs.
 
 ## Acceptance Criteria
 
-- All 84 existing tests still pass unchanged (prey-averaged default preserved).
-- New: short-weighted TL pinned (`omnivore_web` → `TL_C=2.25`), equivalence tests for every threaded function, validator `bioms_losses` symmetry, narrowed-except warning, `@safe_render` uniform error element.
+- All 84 existing tests pass unchanged (prey-averaged default preserved; `Omni=0.125`, `log10(0.25)`, flux pins all hold).
+- New: short-weighted pins (`omnivore_web=[1,2,2.25]`, multi-basal `[1,1,2,2.25]`, chain≡prey-averaged, basal-reachable cycle `SWTL=[1,3,4]`, closed 2-cycle SWTL=NaN); `Omni=0.15625` under short_weighted; SENTINEL equivalence tests for every threaded function; viz NaN-TL render test; `nwTL` NaN-mask test; validator `bioms_losses` symmetry pin; narrowed-except warning; `@safe_render` uniform error element + `logger.exception` + order guard; AST dedup guard.
 - App imports clean; the TL toggle switches the metric across all analysis tabs; a forced renderer failure shows a clean message, not a traceback.
-- No redundant TL/MTI/color recomputation: each is computed once per `current_network`/`tl_method` change (verifiable by the single `reactive.calc` definitions feeding all consumers).
+- The AST guard passes: no analytical renderer recomputes TL/MTI/colors directly.
 
 ## Risks & Mitigations
 
-- **Threading divergence** (a function computes TL differently than the passed value) → equivalence tests per function (B2).
-- **TL toggle not propagating** to a renderer that still computes internally → the `_build_network` helper + explicit pass-down at every call site; a grep check in the plan that no analytical renderer calls `calculate_trophic_levels`/`get_functional_group_colors` directly after B3.
-- **`@safe_render` masking real bugs** → it logs `logger.exception` (full traceback to logs) and only affects the *display* path; tests assert the log call fires.
-- **Short-weighted NaN cascade** into `np.mean(TL)` for unreachable cycles → use `np.nanmean` in the system-level TL aggregation when method is short_weighted, mirroring the omnivory NaN handling.
+- **Short-weighted NaN cascade** into (1) system TL mean — guarded by `np.nanmean`; (2) `nwTL` weighted sum — fixed by the `np.isfinite` mask (B2); (3) **viz y-normalization** — fixed by `np.nanmin`/`np.nanmax` + per-node `isfinite` guard + sentinel y (B2). These are the three real sinks; all addressed.
+- **Threading divergence** (a function uses a different TL than passed) → SENTINEL equivalence tests (B2), not trivial equality.
+- **Silent cache bypass** (a renderer keeps recomputing) → AST/grep dedup guard test (B3).
+- **`@safe_render` masking real bugs** → logs full traceback via `logger.exception`; affects only the display path; tests assert the log fired.
+- **Param-position footgun** → `trophic_levels=None` appended as the final builder param (optionally keyword-only).
