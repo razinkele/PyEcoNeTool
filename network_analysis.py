@@ -28,21 +28,14 @@ from flux_calculations import (
 # Color scheme for functional groups (Benthos, Detritus, Fish, Phytoplankton, Zooplankton)
 COLOR_SCHEME = ["orange", "darkgrey", "blue", "green", "cyan"]
 
-# Trophic level calculation parameters
-TROPHIC_LEVEL_MAX_ITER = 100      # Maximum iterations for convergence
-TROPHIC_LEVEL_CONVERGENCE = 0.0001  # Convergence threshold
-
 # Flux calculation parameters
 FLUX_CONVERSION_FACTOR = 86.4     # Convert J/sec to kJ/day
-FLUX_LOG_EPSILON = 0.00001        # Small value to avoid log(0)
 
 # Visualization parameters
 NODE_SIZE_SCALE = 25              # Scaling factor for node size by biomass
 NODE_SIZE_MIN = 4                 # Minimum node size
 EDGE_WIDTH_SCALE = 15             # Scaling factor for edge width by flux
 EDGE_WIDTH_MIN = 0.1              # Minimum edge width
-EDGE_ARROW_SIZE_TOPOLOGY = 0.3    # Arrow size for topology networks
-EDGE_ARROW_SIZE_FLUX = 0.05       # Arrow size for flux networks
 
 
 # ============================================================================
