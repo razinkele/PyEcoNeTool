@@ -77,39 +77,33 @@ def calculate_trophic_levels(G: nx.DiGraph) -> np.ndarray:
     if n == 0:
         raise ValueError("Network contains no vertices")
 
-    # Initialize all to TL = 1
-    tl = np.ones(n)
-
     # Get adjacency matrix
     # In NetworkX: adj[i,j] = 1 means edge from node i to node j
     # For food webs where edges go prey→predator: adj[i,j] = i is eaten by j
     nodes = list(G.nodes())
     adj = nx.to_numpy_array(G, nodelist=nodes)
 
-    # Iterate until convergence
-    converged = False
-    for iteration in range(TROPHIC_LEVEL_MAX_ITER):
-        tl_old = tl.copy()
+    # Short-weighted / prey-averaged trophic level via linear solve.
+    # For binary adjacency, diet fractions are uniform (1/#prey), so this is
+    # identical to "1 + mean(TL of prey)" for acyclic webs but is stable on cycles.
+    col_sums = adj.sum(axis=0)
+    col_sums_safe = np.where(col_sums == 0, 1, col_sums)
+    # diet[i,j] = fraction of predator i's diet that is prey j
+    diet = (adj / col_sums_safe[np.newaxis, :]).T
+    A = np.eye(n) - diet
+    try:
+        tl = np.linalg.solve(A, np.ones(n))
+    except np.linalg.LinAlgError:
+        warnings.warn("Trophic-level system singular; using pseudo-inverse")
+        tl = np.linalg.lstsq(A, np.ones(n), rcond=None)[0]
 
-        for i in range(n):
-            # Find prey of species i (edges going FROM prey TO predator i)
-            # Column i represents edges going TO node i (prey being eaten by i)
-            prey_indices = np.where(adj[:, i] > 0)[0]
-
-            if len(prey_indices) > 0:
-                # TL = 1 + mean TL of prey
-                tl[i] = 1 + np.mean(tl[prey_indices])
-            else:
-                # Basal species (no prey)
-                tl[i] = 1
-
-        # Check for convergence
-        if np.max(np.abs(tl - tl_old)) < TROPHIC_LEVEL_CONVERGENCE:
-            converged = True
-            break
-
-    if not converged:
-        warnings.warn(f"Trophic level calculation did not converge after {TROPHIC_LEVEL_MAX_ITER} iterations")
+    # Dense cycles make (I - diet) singular OR merely ill-conditioned. In the
+    # ill-conditioned case np.linalg.solve does NOT raise and silently returns
+    # values like 1e16; cycles can also produce TL < 1 or negative. Trophic
+    # levels are physically >= 1, so flag and clamp non-physical results.
+    if not np.all(np.isfinite(tl)) or np.any(tl < 1) or np.any(tl > 100):
+        warnings.warn("Trophic levels non-physical (likely a cyclic web); clamped to [1, 100]")
+        tl = np.clip(np.nan_to_num(tl, nan=1.0, posinf=100.0, neginf=1.0), 1.0, 100.0)
 
     return tl
 
@@ -187,7 +181,11 @@ def get_topological_indicators(G: nx.DiGraph) -> Dict[str, float]:
 
     # Standard deviation of prey TL for each predator (across rows, for each column)
     # axis=0 aggregates rows (calculates SD of prey TL for each predator column)
-    omninodes = np.nanstd(webtl, axis=0)
+    with warnings.catch_warnings():
+        # ddof=1 makes single-prey predators yield NaN (intended exclusion);
+        # that emits a benign "Degrees of freedom <= 0" RuntimeWarning.
+        warnings.simplefilter("ignore", RuntimeWarning)
+        omninodes = np.nanstd(webtl, axis=0, ddof=1)
     Omni = np.nanmean(omninodes)
 
     return {

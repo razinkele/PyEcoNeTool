@@ -444,6 +444,32 @@ def test_full_workflow(simple_omnivory):
     assert topo['Omni'] > 0, "Omnivory should be detected in omnivory network"
 
 
+def test_trophic_levels_finite_on_cycles():
+    """Cyclic / dense webs must yield finite, physical (1 <= TL <= 100) levels,
+    never huge (~1e16) or negative values. Covers the dangerous ill-conditioned
+    (not exactly singular) case where np.linalg.solve silently returns 1e16."""
+    import numpy as np, networkx as nx
+    from network_analysis import calculate_trophic_levels
+    cases = [
+        [(0, 1), (1, 0)],                                            # 2-cycle
+        [(0, 1), (1, 2), (2, 0)],                                    # 3-cycle
+        [(i, j) for i in range(4) for j in range(4) if i != j],     # fully connected
+    ]
+    for edges in cases:
+        G = nx.DiGraph(); G.add_nodes_from(range(4)); G.add_edges_from(edges)
+        tl = calculate_trophic_levels(G)
+        assert np.all(np.isfinite(tl)), (edges, tl)
+        assert np.all(tl >= 1) and np.all(tl <= 100), (edges, tl)
+
+
+def test_trophic_levels_chain_unchanged():
+    """Linear chain 0->1->2 still gives 1,2,3 (no regression vs old loop)."""
+    import numpy as np, networkx as nx
+    from network_analysis import calculate_trophic_levels
+    G = nx.DiGraph(); G.add_nodes_from([0,1,2]); G.add_edge(0,1); G.add_edge(1,2)
+    assert np.allclose(calculate_trophic_levels(G), [1, 2, 3])
+
+
 if __name__ == "__main__":
     # Run tests with pytest
     pytest.main([__file__, '-v', '--tb=short'])
