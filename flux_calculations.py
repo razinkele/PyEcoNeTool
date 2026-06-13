@@ -259,26 +259,34 @@ def validate_flux_equilibrium(
     """
     n = flux_matrix.shape[0]
 
-    # Calculate inflows (prey being consumed)
-    inflows = np.sum(flux_matrix, axis=1) * efficiencies
+    # Prey-level steady state: assimilated incoming flux to consumer i equals
+    # its outflow to predators plus losses.
+    #   assimilated_in_i = sum_k e_k * flux[k,i]  =  (flux.T @ e)_i
+    #   outflow_i        = sum_j flux[i,j] + L_i
+    inflows = flux_matrix.T @ efficiencies
 
-    # Calculate outflows (consumption by predators + losses)
-    outflows = np.sum(flux_matrix, axis=0)
-
-    # Add losses
     L = losses.copy()
     if biomasses is not None:
         L = L * biomasses
-    outflows = outflows + L
+    outflows = np.sum(flux_matrix, axis=1) + L
 
-    # Calculate imbalances
     imbalances = inflows - outflows
-    max_imbalance = np.max(np.abs(imbalances))
+    # Only species with nonzero ASSIMILATED inflow are subject to this balance.
+    # This consistently excludes (a) basal species (no prey) and (b) consumers
+    # whose prey are all zero-efficiency producers - both are grounded by the
+    # solver's `D_e[D_e==0]=1` step and enforce a different (F = L + outflow)
+    # equation, so checking them here would raise a false alarm.
+    checked = inflows > tolerance
+    if np.any(checked):
+        max_imbalance = float(np.max(np.abs(imbalances[checked])))
+        mean_imbalance = float(np.mean(np.abs(imbalances[checked])))
+    else:
+        max_imbalance = mean_imbalance = 0.0
 
     return {
         'balanced': max_imbalance < tolerance,
         'imbalances': imbalances,
         'max_imbalance': max_imbalance,
-        'mean_imbalance': np.mean(np.abs(imbalances)),
-        'relative_imbalance': max_imbalance / np.mean(outflows) if np.mean(outflows) > 0 else np.inf
+        'mean_imbalance': mean_imbalance,
+        'relative_imbalance': max_imbalance / np.mean(outflows) if np.mean(outflows) > 0 else np.inf,
     }

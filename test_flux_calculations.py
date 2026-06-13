@@ -491,6 +491,19 @@ def test_fluxing_prey_level_satisfies_energy_balance():
     assert abs(residual[2]) < 1e-9, residual
 
 
+def test_validate_flux_equilibrium_passes_on_correct_fluxes():
+    """After the fluxing fix, the validator must report balanced=True on the
+    solver's own output (consumer nodes balanced to ~0)."""
+    import numpy as np
+    from flux_calculations import fluxing, validate_flux_equilibrium
+    mat = np.array([[0, 1, 0], [0, 0, 1], [0, 0, 0]], float)
+    L = np.array([2.0, 3.0, 5.0]); e = np.array([0.5, 0.6, 0.7])
+    flux = fluxing(mat, losses=L, efficiencies=e, ef_level="prey")
+    v = validate_flux_equilibrium(flux, losses=L, efficiencies=e)
+    assert v["balanced"] is True, v
+    assert v["max_imbalance"] < 1e-9, v
+
+
 if __name__ == "__main__":
     # Run tests with pytest
     pytest.main([__file__, '-v', '--tb=short'])
