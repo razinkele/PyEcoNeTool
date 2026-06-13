@@ -884,6 +884,30 @@ Network Statistics:
 
         return render_network(net, height=f"{height}px", width="100%")
 
+    @render.download(filename="econetool_network.html")
+    def download_network():
+        G = current_network()
+        info = current_species_info()
+        node_colors, _ = get_functional_group_colors(info['fg'].tolist())
+        if input.network_type() == "Flux-Weighted" and flux_results() is not None:
+            net = create_flux_network(
+                G,
+                species_names=info['species'].tolist(),
+                functional_groups=info['fg'].tolist(),
+                biomass=info['meanB'].values,
+                colors=node_colors,
+                flux_matrix=flux_results()['flux_matrix'],
+            )
+        else:
+            net = create_topology_network(
+                G,
+                species_names=info['species'].tolist(),
+                functional_groups=info['fg'].tolist(),
+                biomass=info['meanB'].values,
+                colors=node_colors,
+            )
+        yield net.generate_html()
+
     @output
     @render.plot
     def adjacency_heatmap():
