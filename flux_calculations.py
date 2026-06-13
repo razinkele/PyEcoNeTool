@@ -125,12 +125,12 @@ def fluxing(
         # F_i * sum_j W_ji*e_j = L_i + sum_j W_ij*F_j
         # F_i * sum_j W_ji*e_j - sum_j W_ij*F_j = L_i
         #
-        # In matrix form: (D_e - W.T) @ F = L
+        # In matrix form: (diag(D_e) - W) @ F = L
         # where D_e is diagonal matrix with D_e[i,i] = sum_j W_ji*e_j
 
         # Calculate D_e: d_i = sum_j W_ji * e_j = (W.T @ e)_i
         # (efficiency-weighted column combination, NOT row-sum * e_i)
-        D_e = W.T @ efficiencies
+        D_e = W.T @ efficiencies.astype(float)
 
         # Handle basal species (no prey -> column sums to 0) to avoid singularity
         D_e[D_e == 0] = 1
@@ -152,7 +152,7 @@ def fluxing(
         # e_i * F_i = L_i + sum_j W_ij*F_j
         # e_i * F_i - sum_j W_ij*F_j = L_i
         #
-        # In matrix form: (D_e - W.T) @ F = L
+        # In matrix form: (diag(e) - W) @ F = L
         # where D_e is diagonal matrix with D_e[i,i] = e_i
 
         # Basal species (no prey -> normalized column sums to 0) get diagonal 1.

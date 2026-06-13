@@ -484,8 +484,9 @@ def test_fluxing_prey_level_satisfies_energy_balance():
     cs = W.sum(0); cs[cs == 0] = 1; W = W / cs
     F = flux.sum(axis=0)                      # per-node intake = column sums
     residual = F * (W.T @ e) - (W @ F) - L
-    # Consumer nodes (1, 2) must balance to ~0; node 0 is basal (excluded:
-    # it's the grounded producer row, which has no assimilation-balance equation).
+    # Node 0 is basal: W[:,0] is all-zero, so flux.sum(axis=0)[0] == 0 regardless
+    # of the solver's F[0]. The node-0 residual is therefore vacuous here; only the
+    # consumer equations (nodes 1, 2) are independently meaningful.
     assert abs(residual[1]) < 1e-9, residual
     assert abs(residual[2]) < 1e-9, residual
 
