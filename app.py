@@ -48,6 +48,9 @@ from pyvis.shiny import render_network
 
 from feedback_reporter import collect_system_context, submit_feedback
 
+import logging
+logger = logging.getLogger("econetpy.app")
+
 # ============================================================================
 # DATA LOADING
 # ============================================================================
@@ -673,8 +676,8 @@ def server(input, output, session):
                 ),
                 ui.tags.small(
                     {"class": "text-muted", "style": "display:block; margin-top:8px;"},
-                    "System info (app version, current tab, browser, species and edge counts) "
-                    "will be attached automatically. No personal data is collected.",
+                    "System info (app version, current tab, browser User-Agent, species and edge counts) "
+                    "will be attached automatically to help diagnose issues.",
                 ),
                 ui.tags.script(
                     "setTimeout(function(){if(typeof Shiny!=='undefined'){"
@@ -749,7 +752,8 @@ def server(input, output, session):
             ui.notification_show(f"Validation error: {exc}", type="warning", duration=5)
             return
         except Exception as exc:
-            ui.notification_show(f"Submission failed: {exc}", type="error", duration=8)
+            logger.exception("feedback submission failed")
+            ui.notification_show("Submission failed, please try again.", type="error", duration=6)
             return
 
         last_feedback_submit.set(now)
