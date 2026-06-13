@@ -12,6 +12,7 @@ import pytest
 import numpy as np
 import networkx as nx
 import pandas as pd
+from hypothesis import given, settings, strategies as st
 from network_analysis import (
     calculate_trophic_levels,
     get_topological_indicators,
@@ -535,6 +536,25 @@ def test_trophic_levels_chain_unchanged():
     from network_analysis import calculate_trophic_levels
     G = nx.DiGraph(); G.add_nodes_from([0,1,2]); G.add_edge(0,1); G.add_edge(1,2)
     assert np.allclose(calculate_trophic_levels(G), [1, 2, 3])
+
+
+@settings(max_examples=40, deadline=None)
+@given(
+    n=st.integers(min_value=3, max_value=6),
+    seed=st.integers(min_value=0, max_value=10_000),
+)
+def test_keystoneness_ranking_invariant_to_log_base(n, seed):
+    """The keystoneness *ordering* must not depend on log base (log is
+    monotonic). Build a random acyclic web (strict upper-triangular adjacency)
+    so it is always a valid, feasible food web."""
+    rng = np.random.default_rng(seed)
+    A = np.triu(rng.integers(0, 2, size=(n, n)), k=1)
+    G = nx.from_numpy_array(A, create_using=nx.DiGraph)
+    biomass = rng.uniform(1.0, 100.0, size=n)
+    df = calculate_keystoneness(G, biomass)
+    ks = df['keystoneness'].values
+    finite = ks[np.isfinite(ks)]
+    assert np.all(np.diff(finite) <= 1e-9), finite  # df is returned sorted desc
 
 
 if __name__ == "__main__":
