@@ -544,6 +544,18 @@ def test_validate_flux_equilibrium_reports_collapse():
     assert result['max_imbalance'] > 1.0, result
 
 
+def test_validate_flux_equilibrium_catches_imbalanced_consumer():
+    """A hand-built flux that violates the consumer balance must be flagged."""
+    flux_matrix = np.array([[0.0, 10.0, 0.0],
+                            [0.0, 0.0, 100.0],   # huge outflow from sp 1
+                            [0.0, 0.0, 0.0]])
+    losses = np.array([0.0, 5.0, 1.0])
+    efficiencies = np.array([0.5, 0.5, 0.5])
+    result = validate_flux_equilibrium(flux_matrix, losses, efficiencies)
+    assert result['balanced'] is False, result
+    assert result['max_imbalance'] > 1.0, result
+
+
 if __name__ == "__main__":
     # Run tests with pytest
     pytest.main([__file__, '-v', '--tb=short'])
