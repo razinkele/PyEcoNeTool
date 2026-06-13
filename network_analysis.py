@@ -474,9 +474,9 @@ def calculate_keystoneness(G: nx.DiGraph, biomass: np.ndarray) -> pd.DataFrame:
     total_biomass = np.sum(biomass)
     relative_biomass = biomass / total_biomass if total_biomass > 0 else biomass
 
-    # Libralato (2006) keystoneness index: KS_i = log(eps_i * (1 - p_i))
+    # Libralato (2006) keystoneness index: KS_i = log10(eps_i * (1 - p_i))
     with np.errstate(divide="ignore", invalid="ignore"):
-        keystoneness = np.log(overall_effect * (1.0 - relative_biomass))
+        keystoneness = np.log10(overall_effect * (1.0 - relative_biomass))
     keystoneness[~np.isfinite(keystoneness)] = np.nan
 
     # Classify relative to the median KS (high impact) and a biomass threshold.
