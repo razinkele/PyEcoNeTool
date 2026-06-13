@@ -1088,17 +1088,28 @@ Node-Weighted Network Indicators:
         biomass = info['meanB'].values
         efficiencies = info['efficiencies'].values
 
-        # Calculate fluxes using proper fluxweb algorithm
-        # This implements the equilibrium-based approach from Gauzens et al. (2019)
-        flux_matrix = fluxing(
-            mat=adj_matrix,
-            biomasses=biomass,
-            losses=losses,
-            efficiencies=efficiencies,
-            bioms_prefs=True,
-            bioms_losses=True,
-            ef_level="prey"
-        )
+        # Calculate fluxes using the fluxweb algorithm (Gauzens et al. 2019).
+        # fluxing() raises ValueError on an infeasible (negative-ingestion)
+        # system; surface that as a clean notification instead of a traceback.
+        try:
+            flux_matrix = fluxing(
+                mat=adj_matrix,
+                biomasses=biomass,
+                losses=losses,
+                efficiencies=efficiencies,
+                bioms_prefs=True,
+                bioms_losses=True,
+                ef_level="prey"
+            )
+        except ValueError as exc:
+            logger.warning("Flux calculation failed: %s", exc)
+            ui.notification_show(
+                f"Flux calculation failed: {exc}",
+                type="error",
+                duration=8,
+            )
+            flux_results.set(None)
+            return
 
         # Convert J/sec to kJ/day (multiply by 86.4)
         flux_matrix = flux_matrix * FLUX_CONVERSION_FACTOR
