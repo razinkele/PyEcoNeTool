@@ -316,6 +316,18 @@ def test_mti_two_species_predator_prey():
     G = nx.DiGraph()
     G.add_nodes_from([0, 1])
     G.add_edge(0, 1)  # 0 (prey) -> 1 (predator)
+
+
+def test_keystoneness_two_species_libralato():
+    """With MTI=[[0,-0.5],[0.5,0]] and equal biomass, eps_i = 0.5 for both,
+    p_i = 0.5, so KS_i = log(0.5 * 0.5) = log(0.25)."""
+    import numpy as np, networkx as nx
+    from network_analysis import calculate_keystoneness
+
+    G = nx.DiGraph(); G.add_nodes_from([0, 1]); G.add_edge(0, 1)
+    df = calculate_keystoneness(G, np.array([1.0, 1.0]))
+    assert np.allclose(df["overall_effect"].values, 0.5), df
+    assert np.allclose(df["keystoneness"].values, np.log(0.25)), df
     MTI = calculate_mti(G)
     assert np.isclose(MTI[0, 1], -0.5), MTI
     assert np.isclose(MTI[1, 0], 0.5), MTI

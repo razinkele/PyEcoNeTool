@@ -474,28 +474,29 @@ def calculate_keystoneness(G: nx.DiGraph, biomass: np.ndarray) -> pd.DataFrame:
     # Calculate MTI matrix
     MTI = calculate_mti(G)
 
-    # Calculate overall effect (sum of absolute MTI values for each impactor)
-    overall_effect = np.sum(np.abs(MTI), axis=0)
+    # Overall effect epsilon_i = L2 norm of species i's impacts.
+    # MTI[i,j] = impact of j on i, so species i's impacts are column i.
+    overall_effect = np.sqrt(np.sum(MTI ** 2, axis=0))
 
-    # Calculate relative biomass
+    # Relative biomass p_i
     total_biomass = np.sum(biomass)
     relative_biomass = biomass / total_biomass if total_biomass > 0 else biomass
 
-    # Calculate keystoneness index
-    keystoneness = np.log(1 + overall_effect) / np.log(1 + relative_biomass)
+    # Libralato (2006) keystoneness index: KS_i = log(eps_i * (1 - p_i))
+    with np.errstate(divide="ignore", invalid="ignore"):
+        keystoneness = np.log(overall_effect * (1.0 - relative_biomass))
+    keystoneness[~np.isfinite(keystoneness)] = np.nan
 
-    # Handle infinite or undefined values
-    keystoneness[np.isinf(keystoneness)] = np.nan
-    keystoneness[np.isnan(keystoneness)] = np.nan
-
-    # Classify species
+    # Classify relative to the median KS (high impact) and a biomass threshold.
+    finite = keystoneness[np.isfinite(keystoneness)]
+    ks_threshold = np.median(finite) if finite.size else np.nan
     keystone_status = []
     for i in range(len(keystoneness)):
         if np.isnan(keystoneness[i]):
             keystone_status.append("Undefined")
-        elif keystoneness[i] > 1 and relative_biomass[i] < 0.05:
+        elif keystoneness[i] >= ks_threshold and relative_biomass[i] < 0.05:
             keystone_status.append("Keystone")
-        elif keystoneness[i] > 0 and relative_biomass[i] >= 0.05:
+        elif keystoneness[i] >= ks_threshold and relative_biomass[i] >= 0.05:
             keystone_status.append("Dominant")
         else:
             keystone_status.append("Rare")
