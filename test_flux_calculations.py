@@ -468,6 +468,28 @@ def test_complete_flux_workflow(omnivory_network):
         f"System should be near equilibrium, got imbalance: {validation['max_imbalance']}"
 
 
+def test_fluxing_prey_level_satisfies_energy_balance():
+    """On an A->B->C chain the solved fluxes must satisfy the prey-level
+    steady-state balance F_i*(W.T@e)_i - (W@F)_i - L_i == 0 for consumers."""
+    import numpy as np
+    from flux_calculations import fluxing
+
+    mat = np.array([[0, 1, 0], [0, 0, 1], [0, 0, 0]], float)  # 0->1->2
+    L = np.array([2.0, 3.0, 5.0])
+    e = np.array([0.5, 0.6, 0.7])
+
+    flux = fluxing(mat, losses=L, efficiencies=e, ef_level="prey")
+
+    W = mat.copy()
+    cs = W.sum(0); cs[cs == 0] = 1; W = W / cs
+    F = flux.sum(axis=0)                      # per-node intake = column sums
+    residual = F * (W.T @ e) - (W @ F) - L
+    # Consumer nodes (1, 2) must balance to ~0; node 0 is basal (excluded:
+    # it's the grounded producer row, which has no assimilation-balance equation).
+    assert abs(residual[1]) < 1e-9, residual
+    assert abs(residual[2]) < 1e-9, residual
+
+
 if __name__ == "__main__":
     # Run tests with pytest
     pytest.main([__file__, '-v', '--tb=short'])
