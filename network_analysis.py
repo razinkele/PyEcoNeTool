@@ -409,38 +409,36 @@ def calculate_mti(G: nx.DiGraph) -> np.ndarray:
     nodes = list(G.nodes())
     adj_matrix = nx.to_numpy_array(G, nodelist=nodes)
 
-    # Create Diet Composition (DC) matrix
-    # DC[i,j] = proportion of predator i's diet that is prey j
-    DC = np.zeros((n, n))
+    # Diet composition: DC[i,j] = fraction of predator j's diet that is prey i
+    # (column-normalized; columns are predators)
+    col_sums = np.sum(adj_matrix, axis=0)
+    col_sums_safe = np.where(col_sums == 0, 1, col_sums)
+    DC = adj_matrix / col_sums_safe[np.newaxis, :]
 
-    # Calculate row sums (total consumption per predator)
+    # Predation distribution: PD[i,j] = fraction of prey i's mortality
+    # due to predator j (row-normalized; rows are prey)
     row_sums = np.sum(adj_matrix, axis=1)
+    row_sums_safe = np.where(row_sums == 0, 1, row_sums)
+    PD = adj_matrix / row_sums_safe[:, np.newaxis]
 
-    # Normalize each row by its sum (if non-zero)
-    for i in range(n):
-        if row_sums[i] > 0:
-            DC[i, :] = adj_matrix[i, :] / row_sums[i]
+    # Net direct impact of i on j: positive as food (DC) minus negative as
+    # predator (PD transposed):  Q[i,j] = DC[i,j] - PD[j,i]
+    Q = DC - PD.T
 
-    # Create identity matrix
     I = np.eye(n)
-
-    # Calculate (I - DC)^(-1)
-    I_minus_DC = I - DC
-
-    # Check if matrix is invertible
-    if np.abs(np.linalg.det(I_minus_DC)) < 1e-10:
-        warnings.warn("Diet composition matrix is singular or near-singular. Using pseudo-inverse.")
-        I_minus_DC_inv = np.linalg.pinv(I_minus_DC)
+    I_minus_Q = I - Q
+    if np.abs(np.linalg.det(I_minus_Q)) < 1e-10:
+        warnings.warn("(I - Q) is singular or near-singular. Using pseudo-inverse.")
+        inv_I_minus_Q = np.linalg.pinv(I_minus_Q)
     else:
-        I_minus_DC_inv = inv(I_minus_DC)
+        inv_I_minus_Q = inv(I_minus_Q)
 
-    # Calculate MTI matrix
-    MTI = -I_minus_DC_inv @ DC
+    # Total (direct + indirect) impact of i on j
+    M = inv_I_minus_Q @ Q
+    np.fill_diagonal(M, 0)
 
-    # Set diagonal to 0
-    np.fill_diagonal(MTI, 0)
-
-    return MTI
+    # Preserve existing convention: MTI[i,j] = impact of j on i
+    return M.T
 
 
 # ============================================================================

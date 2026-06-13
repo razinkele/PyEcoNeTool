@@ -306,6 +306,22 @@ def test_mti_matrix_diagonal_zero(simple_linear_chain):
     assert np.allclose(np.diag(mti), 0), "MTI diagonal should be zero"
 
 
+def test_mti_two_species_predator_prey():
+    """1 prey (0) eaten by 1 predator (1). Hand-computed total impacts:
+    MTI[0,1] = impact of species 1 (predator) on 0 (prey) = -0.5
+    MTI[1,0] = impact of species 0 (prey) on 1 (predator) = +0.5"""
+    import numpy as np, networkx as nx
+    from network_analysis import calculate_mti
+
+    G = nx.DiGraph()
+    G.add_nodes_from([0, 1])
+    G.add_edge(0, 1)  # 0 (prey) -> 1 (predator)
+    MTI = calculate_mti(G)
+    assert np.isclose(MTI[0, 1], -0.5), MTI
+    assert np.isclose(MTI[1, 0], 0.5), MTI
+    assert np.allclose(np.diag(MTI), 0.0)
+
+
 def test_mti_signs(simple_linear_chain):
     """Test MTI matrix has expected signs"""
     G, info = simple_linear_chain
