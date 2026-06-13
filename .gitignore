@@ -53,3 +53,9 @@ EcoNeTool-master.zip
 # Original R binary data blob — canonical inputs are the tracked .graphml/.csv/.json
 # (examples/*.Rdata are intentionally tracked and unaffected by this exact-name rule)
 BalticFW.Rdata
+
+# Scratch / repro files
+_*.py
+
+# Hypothesis property-based test cache (created by the test suite)
+.hypothesis/
