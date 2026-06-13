@@ -189,6 +189,15 @@ def test_omnivory_index_calculation(simple_omnivory):
     assert indicators['Omni'] > 0.1, "Omnivory index should reflect omnivory in network"
 
 
+def test_omnivory_pauly_pinned(simple_omnivory):
+    """Christensen-Pauly OI on A->B, A->C, B->C with TL=[1,2,2.5].
+    OI_A=NaN (no prey), OI_B=0 (single prey), OI_C=0.5*(1-1.5)^2+0.5*(2-1.5)^2=0.25.
+    System Omni = nanmean([NaN,0,0.25]) = 0.125."""
+    G, info = simple_omnivory
+    ind = get_topological_indicators(G)
+    assert np.isclose(ind['Omni'], 0.125), ind['Omni']
+
+
 def test_topological_indicators_empty_network():
     """Test handling of edge cases"""
     G = nx.DiGraph()

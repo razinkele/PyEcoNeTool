@@ -128,11 +128,14 @@ def get_topological_indicators(G: nx.DiGraph) -> Dict[str, float]:
             V: Vulnerability (mean number of predators per prey)
             ShortPath: Mean shortest path length
             TL: Mean trophic level
-            Omni: Omnivory index (mean SD of prey trophic levels)
+            Omni: Omnivory index (Christensen-Pauly diet-weighted variance of prey TL)
 
     References:
         Williams, R. J., & Martinez, N. D. (2000). Simple rules yield complex food webs.
         Nature, 404(6774), 180-183.
+
+        Christensen, V., & Pauly, D. (1992). ECOPATH II — a software for balancing
+        steady-state ecosystem models. Ecological Modelling, 61(3-4), 169-185.
     """
     if not isinstance(G, nx.DiGraph):
         raise ValueError("Input 'G' must be a NetworkX DiGraph object")
@@ -171,20 +174,22 @@ def get_topological_indicators(G: nx.DiGraph) -> Dict[str, float]:
     tlnodes = calculate_trophic_levels(G)
     TL = np.mean(tlnodes)
 
-    # Omnivory index
+    # Omnivory index (Christensen & Pauly 1992): diet-fraction-weighted variance
+    # of prey trophic levels, centered on (TL_i - 1) = the diet-weighted mean
+    # prey TL. OI_i = sum_j DC[j,i] * (TL_j - (TL_i - 1))**2.  No sqrt, no Bessel
+    # correction. Single-prey predators -> 0; basal (no prey) -> NaN (undefined,
+    # excluded from the system mean). Diet fractions are the column-normalized
+    # adjacency, identical to the matrix used by the trophic-level solve.
     adj = nx.to_numpy_array(G, nodelist=list(G.nodes()))
-    # Multiply each row by corresponding prey TL (adjacency: rows=prey, cols=predators)
-    webtl = adj * tlnodes[:, np.newaxis]
-    webtl[webtl == 0] = np.nan
-
-    # Standard deviation of prey TL for each predator (across rows, for each column)
-    # axis=0 aggregates rows (calculates SD of prey TL for each predator column)
-    with warnings.catch_warnings():
-        # ddof=1 makes single-prey predators yield NaN (intended exclusion);
-        # that emits a benign "Degrees of freedom <= 0" RuntimeWarning.
-        warnings.simplefilter("ignore", RuntimeWarning)
-        omninodes = np.nanstd(webtl, axis=0, ddof=1)
-    Omni = np.nanmean(omninodes)
+    col_sums = adj.sum(axis=0)
+    col_sums_safe = np.where(col_sums == 0, 1, col_sums)
+    DC = adj / col_sums_safe[np.newaxis, :]  # DC[j,i] = diet fraction of pred i that is prey j
+    omninodes = np.full(len(col_sums), np.nan)
+    for i in range(len(col_sums)):
+        if col_sums[i] > 0:
+            center = tlnodes[i] - 1.0
+            omninodes[i] = float(np.sum(DC[:, i] * (tlnodes - center) ** 2))
+    Omni = float(np.nanmean(omninodes)) if np.any(np.isfinite(omninodes)) else 0.0
 
     return {
         'S': S,
