@@ -12,6 +12,7 @@ import pytest
 import numpy as np
 import networkx as nx
 import pandas as pd
+from hypothesis import given, settings, strategies as st
 from network_analysis import (
     calculate_trophic_levels,
     get_topological_indicators,
@@ -114,6 +115,21 @@ def test_trophic_levels_omnivory(simple_omnivory):
     assert abs(tl[node_to_idx['C']] - 2.5) < 1e-6, "Omnivore C should have TL=2.5"
 
 
+def test_trophic_levels_cycle_warns_ill_conditioned():
+    """A producer-free closed cycle makes (I - diet) singular/ill-conditioned.
+    calculate_trophic_levels must WARN (not silently return clamped values)."""
+    import warnings as _w
+    G = nx.DiGraph()
+    G.add_edges_from([(0, 1), (1, 2), (2, 0)])  # closed 3-cycle, no basal node
+    with _w.catch_warnings(record=True) as caught:
+        _w.simplefilter("always")
+        calculate_trophic_levels(G)
+    assert any("trophic level" in str(x.message).lower()
+               or "ill-conditioned" in str(x.message).lower()
+               or "cyclic" in str(x.message).lower() for x in caught), \
+        [str(x.message) for x in caught]
+
+
 def test_trophic_levels_convergence():
     """Test that trophic level calculation converges"""
     # Create a network with complex feeding relationships
@@ -187,6 +203,15 @@ def test_omnivory_index_calculation(simple_omnivory):
     # So mean omnivory should be approximately 0.5 (or NaN for some species)
     # This is a qualitative test - just check it's positive
     assert indicators['Omni'] > 0.1, "Omnivory index should reflect omnivory in network"
+
+
+def test_omnivory_pauly_pinned(simple_omnivory):
+    """Christensen-Pauly OI on A->B, A->C, B->C with TL=[1,2,2.5].
+    OI_A=NaN (no prey), OI_B=0 (single prey), OI_C=0.5*(1-1.5)^2+0.5*(2-1.5)^2=0.25.
+    System Omni = nanmean([NaN,0,0.25]) = 0.125."""
+    G, info = simple_omnivory
+    ind = get_topological_indicators(G)
+    assert np.isclose(ind['Omni'], 0.125), ind['Omni']
 
 
 def test_topological_indicators_empty_network():
@@ -324,14 +349,14 @@ def test_mti_two_species_predator_prey():
 
 def test_keystoneness_two_species_libralato():
     """With MTI=[[0,-0.5],[0.5,0]] and equal biomass, eps_i = 0.5 for both,
-    p_i = 0.5, so KS_i = log(0.5 * 0.5) = log(0.25)."""
+    p_i = 0.5, so KS_i = log10(0.5 * 0.5) = log10(0.25) (Libralato 2006)."""
     import numpy as np, networkx as nx
     from network_analysis import calculate_keystoneness
 
     G = nx.DiGraph(); G.add_nodes_from([0, 1]); G.add_edge(0, 1)
     df = calculate_keystoneness(G, np.array([1.0, 1.0]))
     assert np.allclose(df["overall_effect"].values, 0.5), df
-    assert np.allclose(df["keystoneness"].values, np.log(0.25)), df
+    assert np.allclose(df["keystoneness"].values, np.log10(0.25)), df
 
 
 def test_mti_signs(simple_linear_chain):
@@ -412,6 +437,49 @@ def test_keystoneness_classification():
         "All statuses should be valid"
 
 
+def test_keystoneness_valls_quartile_classification():
+    """Valls et al. (2015): Keystone = KS>=Q3(KS) AND biomass<=Q1(biomass).
+
+    This fixture is engineered so the Valls Q3/Q1 scheme and the OLD
+    median(KS)+hardcoded(p<0.05) scheme DISAGREE on the target species,
+    so the test actually pins Valls instead of passing under either scheme.
+
+    Biomass [5,5,1,5] -> relative biomass [0.3125,0.3125,0.0625,0.3125].
+    sp 2 is the unique lowest-biomass, highest-impact (hub) node:
+      * relative biomass 0.0625 is ABOVE the old hardcoded 0.05 cutoff but
+        AT/BELOW Q1 (=0.25) of the biomass distribution, and
+      * its KS is the maximum, so KS >= Q3.
+    => Valls labels sp 2 "Keystone"; the old median+0.05 scheme labels it
+       "Dominant" (high impact but rel_biomass >= 0.05). Asserting "Keystone"
+       fails under the old impl and passes only under Valls.
+    """
+    import numpy as np, networkx as nx
+    from network_analysis import calculate_keystoneness
+
+    G = nx.DiGraph()
+    G.add_edges_from([(0, 1), (0, 2), (1, 2), (2, 3)])
+    biomass = np.array([5.0, 5.0, 1.0, 5.0])  # sp 2 lowest biomass
+
+    df = calculate_keystoneness(G, biomass)
+    row2 = df[df["species"] == 2].iloc[0]
+
+    # Guard the discriminating property: sp 2's relative biomass is strictly
+    # ABOVE the old 0.05 cutoff (so the old scheme could NOT call it Keystone)
+    # yet AT/BELOW Q1 (so Valls can). If this ever breaks, the test stops
+    # discriminating between the two schemes.
+    p2 = float(row2["relative_biomass"])
+    q1 = float(np.quantile(df["relative_biomass"].to_numpy(), 0.25))
+    assert p2 > 0.05, (p2, df)
+    assert p2 <= q1, (p2, q1, df)
+
+    # Valls: sp 2 (KS >= Q3 AND p <= Q1) -> Keystone. Under the old
+    # median+0.05 scheme this same species is "Dominant", so this assertion
+    # is the red/green hinge that pins the Valls quartile logic.
+    assert row2["keystone_status"] == "Keystone", df
+    assert set(df["keystone_status"]).issubset(
+        {"Keystone", "Dominant", "Rare", "Undefined"}), df
+
+
 # ============================================================================
 # INTEGRATION TESTS
 # ============================================================================
@@ -468,6 +536,25 @@ def test_trophic_levels_chain_unchanged():
     from network_analysis import calculate_trophic_levels
     G = nx.DiGraph(); G.add_nodes_from([0,1,2]); G.add_edge(0,1); G.add_edge(1,2)
     assert np.allclose(calculate_trophic_levels(G), [1, 2, 3])
+
+
+@settings(max_examples=40, deadline=None)
+@given(
+    n=st.integers(min_value=3, max_value=6),
+    seed=st.integers(min_value=0, max_value=10_000),
+)
+def test_keystoneness_ranking_invariant_to_log_base(n, seed):
+    """The keystoneness *ordering* must not depend on log base (log is
+    monotonic). Build a random acyclic web (strict upper-triangular adjacency)
+    so it is always a valid, feasible food web."""
+    rng = np.random.default_rng(seed)
+    A = np.triu(rng.integers(0, 2, size=(n, n)), k=1)
+    G = nx.from_numpy_array(A, create_using=nx.DiGraph)
+    biomass = rng.uniform(1.0, 100.0, size=n)
+    df = calculate_keystoneness(G, biomass)
+    ks = df['keystoneness'].values
+    finite = ks[np.isfinite(ks)]
+    assert np.all(np.diff(finite) <= 1e-9), finite  # df is returned sorted desc
 
 
 if __name__ == "__main__":

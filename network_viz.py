@@ -19,6 +19,58 @@ from network_analysis import (
 )
 
 
+def _physics_options(arrow_scale: float, edge_scale_min: float, edge_scale_max: float) -> str:
+    """Return the shared Barnes-Hut physics options JSON for a pyvis Network,
+    parameterized by the two fields that differ between the topology and flux
+    builders (arrow scaleFactor and edge scaling range)."""
+    return """
+    {
+        "physics": {
+            "enabled": true,
+            "solver": "barnesHut",
+            "barnesHut": {
+                "gravitationalConstant": -2000,
+                "centralGravity": 0.1,
+                "springLength": 200,
+                "springConstant": 0.02,
+                "damping": 0.7,
+                "avoidOverlap": 0.2
+            },
+            "stabilization": {
+                "enabled": true,
+                "iterations": 1000,
+                "updateInterval": 50,
+                "onlyDynamicEdges": false,
+                "fit": true
+            },
+            "minVelocity": 0.5,
+            "maxVelocity": 20
+        },
+        "interaction": {
+            "hover": true,
+            "navigationButtons": true,
+            "keyboard": true
+        },
+        "edges": {
+            "smooth": {
+                "type": "curvedCW",
+                "roundness": 0.2
+            },
+            "arrows": {
+                "to": {
+                    "enabled": true,
+                    "scaleFactor": %s
+                }
+            },
+            "scaling": {
+                "min": %s,
+                "max": %s
+            }
+        }
+    }
+    """ % (arrow_scale, edge_scale_min, edge_scale_max)
+
+
 def create_topology_network(
     G: nx.DiGraph,
     species_names: List[str],
@@ -60,52 +112,7 @@ def create_topology_network(
     )
 
     # Configure physics for Barnes-Hut layout (similar to R visNetwork)
-    net.set_options("""
-    {
-        "physics": {
-            "enabled": true,
-            "solver": "barnesHut",
-            "barnesHut": {
-                "gravitationalConstant": -2000,
-                "centralGravity": 0.1,
-                "springLength": 200,
-                "springConstant": 0.02,
-                "damping": 0.7,
-                "avoidOverlap": 0.2
-            },
-            "stabilization": {
-                "enabled": true,
-                "iterations": 1000,
-                "updateInterval": 50,
-                "onlyDynamicEdges": false,
-                "fit": true
-            },
-            "minVelocity": 0.5,
-            "maxVelocity": 20
-        },
-        "interaction": {
-            "hover": true,
-            "navigationButtons": true,
-            "keyboard": true
-        },
-        "edges": {
-            "smooth": {
-                "type": "curvedCW",
-                "roundness": 0.2
-            },
-            "arrows": {
-                "to": {
-                    "enabled": true,
-                    "scaleFactor": 0.5
-                }
-            },
-            "scaling": {
-                "min": 1,
-                "max": 1
-            }
-        }
-    }
-    """)
+    net.set_options(_physics_options(arrow_scale=0.5, edge_scale_min=1, edge_scale_max=1))
 
     # Normalize Y positions based on trophic levels
     min_tl = np.min(trophic_levels)
@@ -200,52 +207,7 @@ def create_flux_network(
     )
 
     # Configure physics (same as topology network)
-    net.set_options("""
-    {
-        "physics": {
-            "enabled": true,
-            "solver": "barnesHut",
-            "barnesHut": {
-                "gravitationalConstant": -2000,
-                "centralGravity": 0.1,
-                "springLength": 200,
-                "springConstant": 0.02,
-                "damping": 0.7,
-                "avoidOverlap": 0.2
-            },
-            "stabilization": {
-                "enabled": true,
-                "iterations": 1000,
-                "updateInterval": 50,
-                "onlyDynamicEdges": false,
-                "fit": true
-            },
-            "minVelocity": 0.5,
-            "maxVelocity": 20
-        },
-        "interaction": {
-            "hover": true,
-            "navigationButtons": true,
-            "keyboard": true
-        },
-        "edges": {
-            "smooth": {
-                "type": "curvedCW",
-                "roundness": 0.2
-            },
-            "arrows": {
-                "to": {
-                    "enabled": true,
-                    "scaleFactor": 0.3
-                }
-            },
-            "scaling": {
-                "min": 0.1,
-                "max": 15
-            }
-        }
-    }
-    """)
+    net.set_options(_physics_options(arrow_scale=0.3, edge_scale_min=0.1, edge_scale_max=15))
 
     # Normalize Y positions based on trophic levels
     min_tl = np.min(trophic_levels)

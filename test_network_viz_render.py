@@ -162,3 +162,20 @@ def test_render_network_returns_iframe_with_srcdoc(simple_test_network):
     assert len(srcdoc) > 1000, f"srcdoc trivially small: {len(srcdoc)} chars"
     for name in species:
         assert name in srcdoc, f"species {name!r} not in srcdoc"
+
+
+def test_topology_node_size_and_y_position_pinned(viz_graph):
+    """Pin node size (NODE_SIZE_MIN + biomass/max*SCALE) and TL->y normalization.
+    biomass=[100,50,25], max=100, NODE_SIZE_MIN=4, NODE_SIZE_SCALE=25:
+      sizes = 4 + [1.0,0.5,0.25]*25 = [29.0, 16.5, 10.25].
+    TL=[1,2,3] -> y = 100*(tl-1)/(3-1) = [0, 50, 100]."""
+    from network_viz import create_topology_network
+    G, species, groups, biomass, colors = viz_graph
+    net = create_topology_network(G, species, groups, biomass, colors)
+    by_label = {n['label']: n for n in net.nodes}
+    assert np.isclose(by_label['Sprat']['size'], 29.0)
+    assert np.isclose(by_label['Herring']['size'], 16.5)
+    assert np.isclose(by_label['Cod']['size'], 10.25)
+    assert np.isclose(by_label['Sprat']['y'], 0.0)
+    assert np.isclose(by_label['Herring']['y'], 50.0)
+    assert np.isclose(by_label['Cod']['y'], 100.0)

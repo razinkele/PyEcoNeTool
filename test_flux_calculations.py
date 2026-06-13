@@ -324,6 +324,24 @@ def test_calculate_losses_metabolic_types():
     assert losses[2] != losses[0], "'Other' type should be different"
 
 
+def test_calculate_losses_allometric_pinned_invertebrate():
+    """Closed-form pin for invertebrates at M=1.0 g and M=10.0 g, T=3.5C.
+    The M=10 case makes the a*ln(M) body-mass term non-zero, so the test
+    discriminates natural-log vs log10 (the M=1 case alone cannot, since
+    ln(1)=log10(1)=0). Also discriminates the Boltzmann constant, the
+    -E/(kT) sign, the x0 intercept, and the +273.15 Kelvin conversion."""
+    boltz = 0.00008617343
+    T = 3.5
+    masses = np.array([1.0, 10.0])
+    expected = np.exp((-0.29 * np.log(masses) + 17.17) - 0.69 / (boltz * (273.15 + T)))
+    out = calculate_losses_allometric(
+        bodymasses=masses,
+        met_types=["invertebrates", "invertebrates"],
+        temperature=T,
+    )
+    assert np.allclose(out, expected, rtol=1e-12), (out, expected)
+
+
 # ============================================================================
 # EQUILIBRIUM VALIDATION TESTS
 # ============================================================================
@@ -502,6 +520,43 @@ def test_validate_flux_equilibrium_passes_on_correct_fluxes():
     v = validate_flux_equilibrium(flux, losses=L, efficiencies=e)
     assert v["balanced"] is True, v
     assert v["max_imbalance"] < 1e-9, v
+
+
+def test_fluxing_raises_on_infeasible_cycle():
+    """A closed 3-cycle with losses that no assimilation efficiency can fund
+    yields a negative steady-state solution. fluxing() must raise, not clip."""
+    mat = np.array([[0, 1, 0],
+                    [0, 0, 1],
+                    [1, 0, 0]])  # A->B->C->A
+    losses = np.array([2.0, 3.0, 5.0])
+    efficiencies = np.array([0.5, 0.6, 0.7])
+    with pytest.raises(ValueError, match="non-negative steady-state"):
+        fluxing(mat=mat, losses=losses, efficiencies=efficiencies,
+                bioms_prefs=False, bioms_losses=False, ef_level="prey")
+
+
+def test_validate_flux_equilibrium_reports_collapse():
+    """When every species has zero assimilated inflow but losses are nonzero,
+    the validator must report balanced=False, not a vacuous balanced=True."""
+    n = 3
+    flux_matrix = np.zeros((n, n))            # collapsed: no flux anywhere
+    losses = np.array([2.0, 3.0, 5.0])        # but losses exist
+    efficiencies = np.array([0.5, 0.6, 0.7])
+    result = validate_flux_equilibrium(flux_matrix, losses, efficiencies)
+    assert result['balanced'] is False, result
+    assert result['max_imbalance'] > 1.0, result
+
+
+def test_validate_flux_equilibrium_catches_imbalanced_consumer():
+    """A hand-built flux that violates the consumer balance must be flagged."""
+    flux_matrix = np.array([[0.0, 10.0, 0.0],
+                            [0.0, 0.0, 100.0],   # huge outflow from sp 1
+                            [0.0, 0.0, 0.0]])
+    losses = np.array([0.0, 5.0, 1.0])
+    efficiencies = np.array([0.5, 0.5, 0.5])
+    result = validate_flux_equilibrium(flux_matrix, losses, efficiencies)
+    assert result['balanced'] is False, result
+    assert result['max_imbalance'] > 1.0, result
 
 
 if __name__ == "__main__":

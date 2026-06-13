@@ -63,12 +63,9 @@ def collect_system_context(
     connection_count from Marine-SABRES.
     """
     try:
-        app_version = (
-            version_path.read_text(encoding="utf-8").splitlines()[0].strip()
-            if version_path.exists()
-            else "unknown"
-        )
-    except OSError as exc:
+        lines = Path(version_path).read_text(encoding="utf-8").splitlines()
+        app_version = lines[0].strip() if lines else "unknown"
+    except (OSError, IndexError) as exc:
         logger.warning("collect_system_context app_version: %s", exc)
         app_version = "unknown"
 

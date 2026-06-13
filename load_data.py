@@ -71,18 +71,19 @@ def load_baltic_data():
         print(f"  Description: {metadata.get('description', 'N/A')}")
         print(f"  Source: {metadata.get('source', 'N/A')}")
 
+    # Check for required columns BEFORE referencing any of them.
+    required_cols = ['species', 'fg', 'meanB', 'bodymasses', 'met.types', 'efficiencies']
+    missing_cols = [col for col in required_cols if col not in info.columns]
+    if missing_cols:
+        print(f"\nWarning: Missing required columns: {missing_cols}")
+
     # Verify data integrity
     print(f"\nData Summary:")
     print(f"  Network nodes: {len(G.nodes())}")
     print(f"  Network edges: {len(G.edges())}")
     print(f"  Species info rows: {len(info)}")
-    print(f"  Functional groups: {info['fg'].nunique()}")
-
-    # Check for required columns
-    required_cols = ['species', 'fg', 'meanB', 'bodymasses', 'met.types', 'efficiencies']
-    missing_cols = [col for col in required_cols if col not in info.columns]
-    if missing_cols:
-        print(f"\nWarning: Missing required columns: {missing_cols}")
+    if 'fg' in info.columns:
+        print(f"  Functional groups: {info['fg'].nunique()}")
 
     return G, info
 

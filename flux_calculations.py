@@ -174,7 +174,16 @@ def fluxing(
         # Link-specific efficiencies (not commonly used, simplified implementation)
         raise NotImplementedError("Link-specific efficiencies not yet implemented")
 
-    # Ensure non-negative fluxes
+    # Infeasible system: a negative ingestion has no biological meaning. fluxweb-R
+    # (Gauzens et al. 2019) raises here rather than silently clipping, because a
+    # clipped all-zero matrix is indistinguishable from a real equilibrium.
+    if np.any(F < -1e-9):
+        raise ValueError(
+            "fluxing: no non-negative steady-state solution exists for these "
+            "inputs (negative ingestion). The food web may contain an infeasible "
+            "cycle or inconsistent losses/efficiencies."
+        )
+    # Clip tiny negative round-off to exactly zero.
     F = np.maximum(F, 0)
 
     # Create flux matrix: flux[i,j] = W[i,j] * F[j]
@@ -278,6 +287,11 @@ def validate_flux_equilibrium(
     if np.any(checked):
         max_imbalance = float(np.max(np.abs(imbalances[checked])))
         mean_imbalance = float(np.mean(np.abs(imbalances[checked])))
+    elif np.any(np.abs(outflows) > tolerance):
+        # No species has assimilated inflow yet outflows/losses exist: the
+        # system is collapsed/unbalanced, not at equilibrium. Report it.
+        max_imbalance = float(np.max(np.abs(imbalances)))
+        mean_imbalance = float(np.mean(np.abs(imbalances)))
     else:
         max_imbalance = mean_imbalance = 0.0
 

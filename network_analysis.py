@@ -28,21 +28,14 @@ from flux_calculations import (
 # Color scheme for functional groups (Benthos, Detritus, Fish, Phytoplankton, Zooplankton)
 COLOR_SCHEME = ["orange", "darkgrey", "blue", "green", "cyan"]
 
-# Trophic level calculation parameters
-TROPHIC_LEVEL_MAX_ITER = 100      # Maximum iterations for convergence
-TROPHIC_LEVEL_CONVERGENCE = 0.0001  # Convergence threshold
-
 # Flux calculation parameters
 FLUX_CONVERSION_FACTOR = 86.4     # Convert J/sec to kJ/day
-FLUX_LOG_EPSILON = 0.00001        # Small value to avoid log(0)
 
 # Visualization parameters
 NODE_SIZE_SCALE = 25              # Scaling factor for node size by biomass
 NODE_SIZE_MIN = 4                 # Minimum node size
 EDGE_WIDTH_SCALE = 15             # Scaling factor for edge width by flux
 EDGE_WIDTH_MIN = 0.1              # Minimum edge width
-EDGE_ARROW_SIZE_TOPOLOGY = 0.3    # Arrow size for topology networks
-EDGE_ARROW_SIZE_FLUX = 0.05       # Arrow size for flux networks
 
 
 # ============================================================================
@@ -89,18 +82,31 @@ def calculate_trophic_levels(G: nx.DiGraph) -> np.ndarray:
     # diet[i,j] = fraction of predator i's diet that is prey j
     diet = (adj / col_sums_safe[np.newaxis, :]).T
     A = np.eye(n) - diet
+    ill_conditioned = False
     try:
+        # cond() is cheap for the small matrices here; flags the cyclic/singular
+        # regime even when np.linalg.solve does not raise and returns huge values.
+        if n > 0 and np.linalg.cond(A) > 1.0 / np.finfo(float).eps:
+            ill_conditioned = True
         tl = np.linalg.solve(A, np.ones(n))
     except np.linalg.LinAlgError:
         warnings.warn("Trophic-level system singular; using pseudo-inverse")
+        ill_conditioned = True
         tl = np.linalg.lstsq(A, np.ones(n), rcond=None)[0]
 
     # Dense cycles make (I - diet) singular OR merely ill-conditioned. In the
     # ill-conditioned case np.linalg.solve does NOT raise and silently returns
-    # values like 1e16; cycles can also produce TL < 1 or negative. Trophic
-    # levels are physically >= 1, so flag and clamp non-physical results.
-    if not np.all(np.isfinite(tl)) or np.any(tl < 1) or np.any(tl > 100):
-        warnings.warn("Trophic levels non-physical (likely a cyclic web); clamped to [1, 100]")
+    # values like 1e16 (or inflated-but-in-range values); cycles can also produce
+    # TL < 1 or negative. Trophic levels are physically >= 1.
+    # NOTE: the clamp below is a stopgap that prevents a NaN cascade into the viz
+    # layer; the proper fix (Williams & Martinez 2004 short-weighted TL) is
+    # deferred to the structural follow-up plan.
+    if ill_conditioned or not np.all(np.isfinite(tl)) or np.any(tl < 1) or np.any(tl > 100):
+        warnings.warn(
+            "Trophic levels are non-physical or the diet matrix is "
+            "ill-conditioned (likely a cyclic web); clamped to [1, 100]. "
+            "Treat these values as unreliable."
+        )
         tl = np.clip(np.nan_to_num(tl, nan=1.0, posinf=100.0, neginf=1.0), 1.0, 100.0)
 
     return tl
@@ -128,11 +134,14 @@ def get_topological_indicators(G: nx.DiGraph) -> Dict[str, float]:
             V: Vulnerability (mean number of predators per prey)
             ShortPath: Mean shortest path length
             TL: Mean trophic level
-            Omni: Omnivory index (mean SD of prey trophic levels)
+            Omni: Omnivory index (Christensen-Pauly diet-weighted variance of prey TL)
 
     References:
         Williams, R. J., & Martinez, N. D. (2000). Simple rules yield complex food webs.
         Nature, 404(6774), 180-183.
+
+        Christensen, V., & Pauly, D. (1992). ECOPATH II — a software for balancing
+        steady-state ecosystem models. Ecological Modelling, 61(3-4), 169-185.
     """
     if not isinstance(G, nx.DiGraph):
         raise ValueError("Input 'G' must be a NetworkX DiGraph object")
@@ -171,20 +180,22 @@ def get_topological_indicators(G: nx.DiGraph) -> Dict[str, float]:
     tlnodes = calculate_trophic_levels(G)
     TL = np.mean(tlnodes)
 
-    # Omnivory index
+    # Omnivory index (Christensen & Pauly 1992): diet-fraction-weighted variance
+    # of prey trophic levels, centered on (TL_i - 1) = the diet-weighted mean
+    # prey TL. OI_i = sum_j DC[j,i] * (TL_j - (TL_i - 1))**2.  No sqrt, no Bessel
+    # correction. Single-prey predators -> 0; basal (no prey) -> NaN (undefined,
+    # excluded from the system mean). Diet fractions are the column-normalized
+    # adjacency, identical to the matrix used by the trophic-level solve.
     adj = nx.to_numpy_array(G, nodelist=list(G.nodes()))
-    # Multiply each row by corresponding prey TL (adjacency: rows=prey, cols=predators)
-    webtl = adj * tlnodes[:, np.newaxis]
-    webtl[webtl == 0] = np.nan
-
-    # Standard deviation of prey TL for each predator (across rows, for each column)
-    # axis=0 aggregates rows (calculates SD of prey TL for each predator column)
-    with warnings.catch_warnings():
-        # ddof=1 makes single-prey predators yield NaN (intended exclusion);
-        # that emits a benign "Degrees of freedom <= 0" RuntimeWarning.
-        warnings.simplefilter("ignore", RuntimeWarning)
-        omninodes = np.nanstd(webtl, axis=0, ddof=1)
-    Omni = np.nanmean(omninodes)
+    col_sums = adj.sum(axis=0)
+    col_sums_safe = np.where(col_sums == 0, 1, col_sums)
+    DC = adj / col_sums_safe[np.newaxis, :]  # DC[j,i] = diet fraction of pred i that is prey j
+    omninodes = np.full(len(col_sums), np.nan)
+    for i in range(len(col_sums)):
+        if col_sums[i] > 0:
+            center = tlnodes[i] - 1.0
+            omninodes[i] = float(np.sum(DC[:, i] * (tlnodes - center) ** 2))
+    Omni = float(np.nanmean(omninodes)) if np.any(np.isfinite(omninodes)) else 0.0
 
     return {
         'S': S,
@@ -440,7 +451,12 @@ def calculate_mti(G: nx.DiGraph) -> np.ndarray:
 # KEYSTONENESS ANALYSIS
 # ============================================================================
 
-def calculate_keystoneness(G: nx.DiGraph, biomass: np.ndarray) -> pd.DataFrame:
+def calculate_keystoneness(
+    G: nx.DiGraph,
+    biomass: np.ndarray,
+    impact_quantile: float = 0.75,
+    biomass_quantile: float = 0.25,
+) -> pd.DataFrame:
     """
     Calculate Keystoneness Index.
 
@@ -474,21 +490,25 @@ def calculate_keystoneness(G: nx.DiGraph, biomass: np.ndarray) -> pd.DataFrame:
     total_biomass = np.sum(biomass)
     relative_biomass = biomass / total_biomass if total_biomass > 0 else biomass
 
-    # Libralato (2006) keystoneness index: KS_i = log(eps_i * (1 - p_i))
+    # Libralato (2006) keystoneness index: KS_i = log10(eps_i * (1 - p_i))
     with np.errstate(divide="ignore", invalid="ignore"):
-        keystoneness = np.log(overall_effect * (1.0 - relative_biomass))
+        keystoneness = np.log10(overall_effect * (1.0 - relative_biomass))
     keystoneness[~np.isfinite(keystoneness)] = np.nan
 
-    # Classify relative to the median KS (high impact) and a biomass threshold.
+    # Valls et al. (2015) per-ecosystem quartile thresholds:
+    #   high impact  = KS >= Q3 of finite keystoneness
+    #   low biomass  = p  <= Q1 of relative biomass
+    # Quantiles are parameterized (impact_quantile / biomass_quantile).
     finite = keystoneness[np.isfinite(keystoneness)]
-    ks_threshold = np.median(finite) if finite.size else np.nan
+    ks_hi = np.quantile(finite, impact_quantile) if finite.size else np.nan
+    bm_lo = np.quantile(relative_biomass, biomass_quantile)
     keystone_status = []
     for i in range(len(keystoneness)):
         if np.isnan(keystoneness[i]):
             keystone_status.append("Undefined")
-        elif keystoneness[i] >= ks_threshold and relative_biomass[i] < 0.05:
+        elif keystoneness[i] >= ks_hi and relative_biomass[i] <= bm_lo:
             keystone_status.append("Keystone")
-        elif keystoneness[i] >= ks_threshold and relative_biomass[i] >= 0.05:
+        elif keystoneness[i] >= ks_hi and relative_biomass[i] > bm_lo:
             keystone_status.append("Dominant")
         else:
             keystone_status.append("Rare")
