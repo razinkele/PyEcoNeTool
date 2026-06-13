@@ -1299,6 +1299,29 @@ Keystoneness Analysis Summary:
         info = current_species_info()
         return render.DataGrid(info, editable=True, width="100%")
 
+    @reactive.effect
+    @reactive.event(input.update_species_info)
+    def _apply_species_info_edits():
+        edited = species_info_editor.data_view()  # returns original + user edits
+        if edited is None or edited.empty:
+            ui.notification_show("No edited data to apply.", type="warning", duration=4)
+            return
+        df = edited.copy()
+        # DataGrid returns edited cells as strings; coerce numeric columns back.
+        for col in ("meanB", "bodymasses", "efficiencies"):
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors="coerce")
+        # Reject malformed edits rather than letting NaN crash downstream renders.
+        numeric_cols = [c for c in ("meanB", "bodymasses", "efficiencies") if c in df.columns]
+        if numeric_cols and df[numeric_cols].isna().any().any():
+            ui.notification_show(
+                "Some numeric cells are invalid (non-numeric or blank). Fix them and retry.",
+                type="error", duration=6,
+            )
+            return
+        current_species_info.set(df)
+        ui.notification_show("Species info updated.", type="message", duration=4)
+
 
 # ============================================================================
 # CREATE APP WITH STATIC FILE SERVING
