@@ -386,8 +386,10 @@ def calculate_mti(G: nx.DiGraph) -> np.ndarray:
     Calculate Mixed Trophic Impact (MTI) matrix.
 
     Computes the direct and indirect impacts of each species on all others
-    using the ECOPATH approach. MTI represents the net effect of increasing
-    the biomass of one species on all other species in the food web.
+    using the Ulanowicz & Puccia (1990) formulation: Q = DC - PD^T, where DC
+    is the column-normalized diet matrix and PD the row-normalized predation
+    distribution; MTI = (I - Q)^-1 @ Q with the diagonal zeroed. MTI represents
+    the net effect of increasing the biomass of one species on all others.
 
     Args:
         G: NetworkX DiGraph representing the food web
@@ -433,7 +435,8 @@ def calculate_mti(G: nx.DiGraph) -> np.ndarray:
     else:
         inv_I_minus_Q = inv(I_minus_Q)
 
-    # Total (direct + indirect) impact of i on j
+    # M[i,j] = total (direct + indirect) impact of i on j (pre-transpose;
+    # the return value below transposes to MTI[i,j] = impact of j on i)
     M = inv_I_minus_Q @ Q
     np.fill_diagonal(M, 0)
 
