@@ -559,6 +559,18 @@ def server(input, output, session):
     current_network = reactive.Value(network)
     current_species_info = reactive.Value(species_info)
     flux_results = reactive.Value(None)
+
+    @reactive.calc
+    def trophic_levels_cached():
+        return calculate_trophic_levels(current_network())
+
+    @reactive.calc
+    def mti_cached():
+        return calculate_mti(current_network())
+
+    @reactive.calc
+    def keystoneness_cached():
+        return calculate_keystoneness(current_network(), current_species_info()["meanB"].values)
     current_page = reactive.Value("dashboard")
     last_feedback_submit = reactive.Value(None)  # epoch seconds; rate-limit guard
 
@@ -959,8 +971,7 @@ Topological Network Indicators:
     @output
     @render.plot
     def trophic_level_histogram():
-        G = current_network()
-        tl = calculate_trophic_levels(G)
+        tl = trophic_levels_cached()
 
         fig, ax = plt.subplots(figsize=(8, 6))
         ax.hist(tl, bins=20, edgecolor='black', color='skyblue')
@@ -975,9 +986,8 @@ Topological Network Indicators:
     @output
     @render.data_frame
     def trophic_levels_table():
-        G = current_network()
         info = current_species_info()
-        tl = calculate_trophic_levels(G)
+        tl = trophic_levels_cached()
 
         df = pd.DataFrame({
             'Species': info['species'],
@@ -1190,10 +1200,7 @@ Flux-Based Indicators:
     @output
     @render.text
     def keystoneness_summary():
-        G = current_network()
-        info = current_species_info()
-
-        keystoneness_df = calculate_keystoneness(G, info['meanB'].values)
+        keystoneness_df = keystoneness_cached()
 
         n_keystone = (keystoneness_df['keystone_status'] == 'Keystone').sum()
         n_dominant = (keystoneness_df['keystone_status'] == 'Dominant').sum()
@@ -1216,10 +1223,7 @@ Keystoneness Analysis Summary:
     @output
     @render.plot
     def keystoneness_scatter():
-        G = current_network()
-        info = current_species_info()
-
-        keystoneness_df = calculate_keystoneness(G, info['meanB'].values)
+        keystoneness_df = keystoneness_cached()
 
         fig, ax = plt.subplots(figsize=(10, 8))
 
@@ -1266,10 +1270,7 @@ Keystoneness Analysis Summary:
     @output
     @render.data_frame
     def keystoneness_table():
-        G = current_network()
-        info = current_species_info()
-
-        keystoneness_df = calculate_keystoneness(G, info['meanB'].values)
+        keystoneness_df = keystoneness_cached()
 
         # Format for display
         display_df = keystoneness_df.copy()
@@ -1282,10 +1283,9 @@ Keystoneness Analysis Summary:
     @output
     @render.plot
     def mti_heatmap():
-        G = current_network()
         info = current_species_info()
 
-        mti_matrix = calculate_mti(G)
+        mti_matrix = mti_cached()
         labels = info['species'].tolist()
 
         fig, ax = plt.subplots(figsize=(12, 10))
