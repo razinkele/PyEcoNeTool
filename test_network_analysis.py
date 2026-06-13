@@ -316,6 +316,10 @@ def test_mti_two_species_predator_prey():
     G = nx.DiGraph()
     G.add_nodes_from([0, 1])
     G.add_edge(0, 1)  # 0 (prey) -> 1 (predator)
+    MTI = calculate_mti(G)
+    assert np.isclose(MTI[0, 1], -0.5), MTI
+    assert np.isclose(MTI[1, 0], 0.5), MTI
+    assert np.allclose(np.diag(MTI), 0.0)
 
 
 def test_keystoneness_two_species_libralato():
@@ -328,10 +332,6 @@ def test_keystoneness_two_species_libralato():
     df = calculate_keystoneness(G, np.array([1.0, 1.0]))
     assert np.allclose(df["overall_effect"].values, 0.5), df
     assert np.allclose(df["keystoneness"].values, np.log(0.25)), df
-    MTI = calculate_mti(G)
-    assert np.isclose(MTI[0, 1], -0.5), MTI
-    assert np.isclose(MTI[1, 0], 0.5), MTI
-    assert np.allclose(np.diag(MTI), 0.0)
 
 
 def test_mti_signs(simple_linear_chain):
