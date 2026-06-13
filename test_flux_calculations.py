@@ -504,6 +504,31 @@ def test_validate_flux_equilibrium_passes_on_correct_fluxes():
     assert v["max_imbalance"] < 1e-9, v
 
 
+def test_fluxing_raises_on_infeasible_cycle():
+    """A closed 3-cycle with losses that no assimilation efficiency can fund
+    yields a negative steady-state solution. fluxing() must raise, not clip."""
+    mat = np.array([[0, 1, 0],
+                    [0, 0, 1],
+                    [1, 0, 0]])  # A->B->C->A
+    losses = np.array([2.0, 3.0, 5.0])
+    efficiencies = np.array([0.5, 0.6, 0.7])
+    with pytest.raises(ValueError, match="non-negative steady-state"):
+        fluxing(mat=mat, losses=losses, efficiencies=efficiencies,
+                bioms_prefs=False, bioms_losses=False, ef_level="prey")
+
+
+def test_validate_flux_equilibrium_reports_collapse():
+    """When every species has zero assimilated inflow but losses are nonzero,
+    the validator must report balanced=False, not a vacuous balanced=True."""
+    n = 3
+    flux_matrix = np.zeros((n, n))            # collapsed: no flux anywhere
+    losses = np.array([2.0, 3.0, 5.0])        # but losses exist
+    efficiencies = np.array([0.5, 0.6, 0.7])
+    result = validate_flux_equilibrium(flux_matrix, losses, efficiencies)
+    assert result['balanced'] is False, result
+    assert result['max_imbalance'] > 1.0, result
+
+
 if __name__ == "__main__":
     # Run tests with pytest
     pytest.main([__file__, '-v', '--tb=short'])
