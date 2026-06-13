@@ -123,9 +123,6 @@ except Exception as e:
     print("Using example network instead.")
     network, species_info = create_example_network()
 
-# Get functional group colors
-node_colors, color_map = get_functional_group_colors(species_info['fg'].tolist())
-
 # ============================================================================
 # CONTENT DEFINITIONS (must be defined before app_ui)
 # ============================================================================
