@@ -114,6 +114,21 @@ def test_trophic_levels_omnivory(simple_omnivory):
     assert abs(tl[node_to_idx['C']] - 2.5) < 1e-6, "Omnivore C should have TL=2.5"
 
 
+def test_trophic_levels_cycle_warns_ill_conditioned():
+    """A producer-free closed cycle makes (I - diet) singular/ill-conditioned.
+    calculate_trophic_levels must WARN (not silently return clamped values)."""
+    import warnings as _w
+    G = nx.DiGraph()
+    G.add_edges_from([(0, 1), (1, 2), (2, 0)])  # closed 3-cycle, no basal node
+    with _w.catch_warnings(record=True) as caught:
+        _w.simplefilter("always")
+        calculate_trophic_levels(G)
+    assert any("trophic level" in str(x.message).lower()
+               or "ill-conditioned" in str(x.message).lower()
+               or "cyclic" in str(x.message).lower() for x in caught), \
+        [str(x.message) for x in caught]
+
+
 def test_trophic_levels_convergence():
     """Test that trophic level calculation converges"""
     # Create a network with complex feeding relationships

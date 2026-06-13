@@ -89,18 +89,31 @@ def calculate_trophic_levels(G: nx.DiGraph) -> np.ndarray:
     # diet[i,j] = fraction of predator i's diet that is prey j
     diet = (adj / col_sums_safe[np.newaxis, :]).T
     A = np.eye(n) - diet
+    ill_conditioned = False
     try:
+        # cond() is cheap for the small matrices here; flags the cyclic/singular
+        # regime even when np.linalg.solve does not raise and returns huge values.
+        if n > 0 and np.linalg.cond(A) > 1.0 / np.finfo(float).eps:
+            ill_conditioned = True
         tl = np.linalg.solve(A, np.ones(n))
     except np.linalg.LinAlgError:
         warnings.warn("Trophic-level system singular; using pseudo-inverse")
+        ill_conditioned = True
         tl = np.linalg.lstsq(A, np.ones(n), rcond=None)[0]
 
     # Dense cycles make (I - diet) singular OR merely ill-conditioned. In the
     # ill-conditioned case np.linalg.solve does NOT raise and silently returns
-    # values like 1e16; cycles can also produce TL < 1 or negative. Trophic
-    # levels are physically >= 1, so flag and clamp non-physical results.
-    if not np.all(np.isfinite(tl)) or np.any(tl < 1) or np.any(tl > 100):
-        warnings.warn("Trophic levels non-physical (likely a cyclic web); clamped to [1, 100]")
+    # values like 1e16 (or inflated-but-in-range values); cycles can also produce
+    # TL < 1 or negative. Trophic levels are physically >= 1.
+    # NOTE: the clamp below is a stopgap that prevents a NaN cascade into the viz
+    # layer; the proper fix (Williams & Martinez 2004 short-weighted TL) is
+    # deferred to the structural follow-up plan.
+    if ill_conditioned or not np.all(np.isfinite(tl)) or np.any(tl < 1) or np.any(tl > 100):
+        warnings.warn(
+            "Trophic levels are non-physical or the diet matrix is "
+            "ill-conditioned (likely a cyclic web); clamped to [1, 100]. "
+            "Treat these values as unreliable."
+        )
         tl = np.clip(np.nan_to_num(tl, nan=1.0, posinf=100.0, neginf=1.0), 1.0, 100.0)
 
     return tl
