@@ -494,6 +494,7 @@ def calculate_keystoneness(
     biomass: np.ndarray,
     impact_quantile: float = 0.75,
     biomass_quantile: float = 0.25,
+    mti: np.ndarray = None,
 ) -> pd.DataFrame:
     """
     Calculate Keystoneness Index.
@@ -518,7 +519,7 @@ def calculate_keystoneness(
         food web models. Ecological Modelling, 195(3-4), 153-171.
     """
     # Calculate MTI matrix
-    MTI = calculate_mti(G)
+    MTI = mti if mti is not None else calculate_mti(G)
 
     # Overall effect epsilon_i = L2 norm of species i's impacts.
     # MTI[i,j] = impact of j on i, so species i's impacts are column i.

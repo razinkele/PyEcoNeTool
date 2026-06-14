@@ -531,6 +531,19 @@ def test_keystoneness_valls_quartile_classification():
         {"Keystone", "Dominant", "Rare", "Undefined"}), df
 
 
+def test_keystoneness_uses_passed_mti_sentinel(simple_linear_chain):
+    """Inject an MTI that differs from the internal one; overall_effect (the
+    column L2 norm of MTI) must reflect the injected matrix."""
+    G, info = simple_linear_chain
+    bm = info['meanB'].values
+    sentinel = np.array([[0.0, 0.0, 0.0],
+                         [3.0, 0.0, 0.0],
+                         [0.0, 4.0, 0.0]])   # column 0 L2 = 3
+    df = calculate_keystoneness(G, bm, mti=sentinel)
+    row0 = df[df['species'] == 'A'].iloc[0]
+    assert np.isclose(row0['overall_effect'], 3.0), row0['overall_effect']
+
+
 # ============================================================================
 # INTEGRATION TESTS
 # ============================================================================
