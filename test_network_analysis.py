@@ -639,6 +639,44 @@ def test_shortpath_single_node_is_zero_no_warning():
         [str(x.message) for x in caught]
 
 
+def test_topological_indicators_uses_passed_tl_sentinel(simple_linear_chain):
+    """Inject a TL that DIFFERS from the internal value; the system TL mean must
+    reflect the injected value (proves the param is consumed, not recomputed)."""
+    G, _ = simple_linear_chain          # real TL = [1,2,3] -> mean 2.0
+    sentinel = np.array([1.0, 2.0, 5.0])  # mean 8/3
+    ind = get_topological_indicators(G, trophic_levels=sentinel)
+    assert np.isclose(ind['TL'], 8.0 / 3.0), ind['TL']
+    ind_none = get_topological_indicators(G)
+    assert np.isclose(ind_none['TL'], 2.0), ind_none['TL']
+
+
+def test_topological_tl_mean_nan_safe(simple_linear_chain):
+    """A NaN TL entry (short-weighted closed-cycle node) must not poison the
+    system TL mean. RED under np.mean (-> NaN), GREEN after np.nanmean."""
+    G, _ = simple_linear_chain
+    ind = get_topological_indicators(G, trophic_levels=np.array([1.0, np.nan, 3.0]))
+    assert np.isclose(ind['TL'], 2.0), ind['TL']
+
+
+def test_node_weighted_uses_passed_tl_sentinel(simple_linear_chain):
+    G, info = simple_linear_chain
+    bm = info['meanB'].values            # [100,50,25]
+    sentinel = np.array([1.0, 2.0, 5.0])
+    ind = get_node_weighted_indicators(G, bm, trophic_levels=sentinel)
+    expected = np.sum(sentinel * bm) / np.sum(bm)
+    assert np.isclose(ind['nwTL'], expected), ind['nwTL']
+
+
+def test_node_weighted_nwTL_masks_nan_tl(simple_linear_chain):
+    """A NaN TL entry must not poison nwTL (short_weighted can inject NaN)."""
+    G, info = simple_linear_chain
+    bm = info['meanB'].values
+    tl = np.array([1.0, np.nan, 3.0])
+    ind = get_node_weighted_indicators(G, bm, trophic_levels=tl)
+    expected = (1.0 * bm[0] + 3.0 * bm[2]) / (bm[0] + bm[2])
+    assert np.isclose(ind['nwTL'], expected), ind['nwTL']
+
+
 if __name__ == "__main__":
     # Run tests with pytest
     pytest.main([__file__, '-v', '--tb=short'])

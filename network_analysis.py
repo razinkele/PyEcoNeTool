@@ -151,7 +151,7 @@ def calculate_trophic_levels(G: nx.DiGraph, method: str = "prey_averaged") -> np
 # TOPOLOGICAL (QUALITATIVE) INDICATORS
 # ============================================================================
 
-def get_topological_indicators(G: nx.DiGraph) -> Dict[str, float]:
+def get_topological_indicators(G: nx.DiGraph, trophic_levels: np.ndarray = None) -> Dict[str, float]:
     """
     Calculate topological (qualitative) indicators for a food web.
 
@@ -213,8 +213,8 @@ def get_topological_indicators(G: nx.DiGraph) -> Dict[str, float]:
         ShortPath = np.nan
 
     # Trophic levels
-    tlnodes = calculate_trophic_levels(G)
-    TL = np.mean(tlnodes)
+    tlnodes = trophic_levels if trophic_levels is not None else calculate_trophic_levels(G)
+    TL = np.nanmean(tlnodes)
 
     # Omnivory index (Christensen & Pauly 1992): diet-fraction-weighted variance
     # of prey trophic levels, centered on (TL_i - 1) = the diet-weighted mean
@@ -248,7 +248,7 @@ def get_topological_indicators(G: nx.DiGraph) -> Dict[str, float]:
 # NODE-WEIGHTED (QUANTITATIVE) INDICATORS
 # ============================================================================
 
-def get_node_weighted_indicators(G: nx.DiGraph, biomass: np.ndarray) -> Dict[str, float]:
+def get_node_weighted_indicators(G: nx.DiGraph, biomass: np.ndarray, trophic_levels: np.ndarray = None) -> Dict[str, float]:
     """
     Calculate node-weighted (quantitative) indicators for a food web.
 
@@ -283,7 +283,7 @@ def get_node_weighted_indicators(G: nx.DiGraph, biomass: np.ndarray) -> Dict[str
         warnings.warn("NA values found in biomass, results may be unreliable")
 
     # Calculate trophic levels
-    tlnodes = calculate_trophic_levels(G)
+    tlnodes = trophic_levels if trophic_levels is not None else calculate_trophic_levels(G)
 
     # Get degrees
     in_degrees = np.array([G.in_degree(node) for node in G.nodes()])
@@ -305,7 +305,9 @@ def get_node_weighted_indicators(G: nx.DiGraph, biomass: np.ndarray) -> Dict[str
     nwV = (np.sum((out_degrees * biomass)[prey]) / np.sum(biomass[prey])) if np.sum(prey) > 0 else 0
 
     # Node-weighted mean trophic level
-    nwTL = np.sum(tlnodes * biomass) / total_biomass if total_biomass > 0 else 0
+    finite_tl = np.isfinite(tlnodes)
+    nwTL = (np.sum((tlnodes * biomass)[finite_tl]) / np.sum(biomass[finite_tl])
+            if total_biomass > 0 and np.sum(biomass[finite_tl]) > 0 else 0)
 
     return {
         'nwC': nwC,
