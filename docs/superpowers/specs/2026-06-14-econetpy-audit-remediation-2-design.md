@@ -26,7 +26,7 @@ Fix the confirmed inconsistencies and bugs from the deep audit, in six TDD-gated
 ### 1.1 Flux inflow-diversity is transposed (`network_analysis.py:382`)
 `calculate_flux_indicators` normalizes inflows with `(W_net.T / sum_in).T`, which divides `W_net[i,j]` by `sum_in[i]` (the *prey's* total inflow) instead of `sum_in[j]` (the *predator's* intake). The outflow side (`:394`) is correct. Result: `lwG` is computed on the wrong distribution; `lwV` is fine.
 - **Fix:** `:382` → `H_in_mat = (W_net / sum_in[np.newaxis, :]) * np.log(W_net / sum_in[np.newaxis, :])` (mirror the outflow form, divide each column by its predator's intake).
-- **Test (must be discriminating):** a web with a **multi-prey predator** — the 3-chain gives `lwG=lwV=1.0` under *both* buggy and fixed code (single-prey predators hide the transpose). Use e.g. predator C eating prey A and B with **equal** flux so its effective number of prey `N_res=2.0`; assert `lwG`/`N_res` reflects 2 effective prey. Also pin the 3-chain `lwG=lwV=1.0` as a non-regression anchor, and that `lwV` is unchanged by the fix.
+- **Test (must be discriminating):** a web with a **multi-prey predator** — the 3-chain gives `lwG=lwV=1.0` under *both* buggy and fixed code (single-prey predators hide the transpose). Use e.g. predator C eating prey A and B with **equal** flux so its effective number of prey `N_res=2.0`; assert `lwG`/`N_res` reflects 2 effective prey (the buggy transpose gives a different value). Pin the 3-chain `lwG=lwV=1.0` as a non-regression anchor, and assert `lwV` is byte-identical before/after the fix (the fix touches only the inflow path).
 
 ### 1.2 NaN biomass reported as perfect equilibrium (`flux_calculations.py:~180-187, ~287`)
 A single NaN biomass → all-NaN `F`; `np.any(F < -1e-9)` is `False` for NaN, so `fluxing` does not raise; `validate_flux_equilibrium` then returns `balanced=True, max_imbalance=0.0`. Broken == valid.
@@ -35,8 +35,9 @@ A single NaN biomass → all-NaN `F`; `np.any(F < -1e-9)` is `False` for NaN, so
 
 ### 1.3 Omnivory center wrong under short-weighted TL (`network_analysis.py:232`)
 `center = tlnodes[i] - 1.0` equals the diet-weighted mean prey TL **only for prey-averaged TL**. The app now threads short-weighted TL into `get_topological_indicators`, where the identity breaks, so the omnivory variance is taken about the wrong center.
-- **Fix:** `:232` → `center = float(np.sum(DC[:, i] * tlnodes))` (the actual diet-weighted mean prey TL). Guard NaN prey TLs (use the finite prey only, mirroring the existing NaN handling). Update the docstring (`:219-221`) to stop asserting `center == TL_i - 1`.
-- **Verified invariance:** prey-averaged `Omni=0.125`/`0.247` pins are unchanged (for prey-averaged the new center *equals* `TL_i-1`). For `omnivore_web`, corrected `Omni=0.125` under **both** methods (re-derived). 
+- **Fix:** `:232` → `center = float(np.sum(DC[:, i] * tlnodes))` (the actual diet-weighted mean prey TL). Update the docstring (`:219-221`) to stop asserting `center == TL_i - 1`.
+- **NaN-prey rule (precise):** if any prey of predator `i` has a NaN TL, renormalize `DC[:, i]` over the finite-TL prey only — `w = DC[mask, i] / DC[mask, i].sum()` — then `center = sum(w * TL[mask])` and `OI_i = sum(w * (TL[mask] - center)**2)`. If no finite-TL prey remain, `OI_i = NaN`. (This keeps a predator with some short-weighted-NaN prey from poisoning to NaN.)
+- **Verified invariance:** the prey-averaged `Omni=0.125` pin is unchanged (for prey-averaged the new center *equals* `TL_i-1`). For `omnivore_web`, corrected `Omni=0.125` under **both** methods (re-derived). *(There is no `0.247` regression pin today; the Baltic `0.247` value was observed live, not pinned — if a second invariant is wanted, add the post-regen BalticFW system Omni as a NEW pin, clearly labeled.)*
 - **Test:** assert `Omni == 0.125` for `omnivore_web` under both `prey_averaged` and `short_weighted` (was wrong under short-weighted before the fix).
 
 ---
@@ -48,19 +49,19 @@ Root cause: node IDs are `n0..n33`; species names live in `info['species']`; eve
 ### 2.1 Relabel + key the join (`load_data.py`)
 - In `load_baltic_data`: after reading the GraphML, `names = nx.get_node_attributes(G, 'name')`; if complete, `G = nx.relabel_nodes(G, names)`. Then **`assert list(G.nodes()) == info['species'].tolist()`** (reindex `info` to node order first if needed). Delete the dead `str(i)` relabel branch (`:55-64`) — it never fires (`n`-prefixed IDs).
 - `load_baltic_data` **raises** on contract violations instead of `print`-and-continue (missing columns, length mismatch, name/order mismatch).
-- **Regenerate `BalticFW.pkl`** (run the fixed `load_data.py`); node IDs become species names, data values identical.
+- **Regenerate `BalticFW.pkl`** (run the fixed `load_data.py`); node IDs become species names, data values identical. **Note: `BalticFW.pkl` is gitignored — it is NOT committed.** It is a per-machine cache rebuilt from the tracked GraphML/CSV/JSON. So there is no "commit the pickle" step; instead, every dev/CI machine must rebuild it (see build order). **Verified: the 34 species names are unique** (no `relabel_nodes` merge risk).
 
 ### 2.2 Key the matrix builders (`app.py`, `network_analysis.py`, `network_viz.py`)
-Pass `nodelist=info['species'].tolist()` (== `list(G.nodes())` after 2.1) to every `nx.to_numpy_array(G)` where per-species alignment matters (the flux adjacency at `app.py:~955`, the MTI/omnivory/keystoneness builders). After 2.1 this is belt-and-suspenders, but it makes the contract explicit and survives a future reorder.
+Pass `nodelist=info['species'].tolist()` (== `list(G.nodes())` after 2.1) to **both** `nx.to_numpy_array(G)` call sites where per-species alignment matters: `app.py:955` (`adjacency_heatmap`) **and `app.py:1119`** (the `calculate_fluxes` effect — the actual flux-solve `mat=` fed to `fluxing()`, the more important one), plus the MTI/omnivory/keystoneness builders. After 2.1 this is belt-and-suspenders, but it makes the contract explicit and survives a future reorder. **This change must land in the same task as the pickle regen (2.1), before that task's gate** — adding `nodelist=info['species']` against a stale `n0..n33` pickle throws `NetworkXError`.
 
 ### 2.3 Pickle fast-path validation (`app.py:~96-104`)
-Validate `{'network','info'}` keys and the required columns on the pickle load; on failure, fall through to reconstruction from the tracked sources (don't crash deep in a renderer with an opaque `KeyError`).
+On the pickle load, validate `{'network','info'}` keys, the required columns, **AND `set(info['species']) == set(G.nodes())`**; on any failure, fall through to reconstruction from the tracked sources (don't crash deep in a renderer with an opaque `KeyError`, and don't silently use a stale n-prefixed pickle after 2.1).
 
 ### 2.4 Data Editor reorder-safety (`app.py:~1356-1383`)
-`current_species_info.set(data_view())` returns *display-order* rows; a user sort silently permutes biomass/efficiency against unchanged node order. Fix: read from `species_info_editor.data()` (original order) or reindex to node order before `set`; `assert len == G.number_of_nodes()`; make `species`/`fg` non-editable in the editor.
+`current_species_info.set(species_info_editor.data_view())` (`app.py:1365`) returns *display-order* rows **with edits**; a user sort silently permutes biomass/efficiency against unchanged node order. **Fix: read from `species_info_editor.data_patched()`** — original node order WITH user cell edits — *not* `.data()` (drops edits) and *not* `.data_view()` (display order). Alternatively, reindex `data_view()` back to node order before `set`. `assert len == G.number_of_nodes()`; make `species`/`fg` non-editable in the editor. (Also correct the stale `app.py:1365` comment.)
 
 ### 2.5 Keystoneness names (`#4`, resolved by 2.1)
-After 2.1, `calculate_keystoneness`'s `species` column holds real names. Add a **regression test** using a graph whose node IDs differ from a separate name mapping (a node==name fixture cannot catch the original bug), asserting the displayed/returned identity is name-keyed.
+After 2.1, `calculate_keystoneness`'s `species` column holds real names. Add a **regression test** with a fixture whose node IDs are **non-trivial vs insertion order** (so the descending sort reorders rows), asserting BOTH: (a) the returned `species` column holds the mapped **names**, not raw IDs; and (b) per row, `relative_biomass == biomass[that node] / total` — i.e. the `(species, relative_biomass)` pairing survives the descending sort. A node==name fixture cannot catch the original bug.
 
 ---
 
@@ -70,7 +71,7 @@ After 2.1, `calculate_keystoneness`'s `species` column holds real names. Add a *
 - **3.2 (`#8`)** `calculate_keystoneness` type-guard: add `if not isinstance(G, nx.DiGraph): raise ValueError(...)` at the top — currently skipped on the cached `mti=` path (the app's path).
 - **3.3 (`#9`)** `nwG`/`nwV` (`network_analysis.py:~301,305`): the guards test node *count* but divide by biomass *sum* → all-zero-biomass prey gives silent NaN. Guard the divisor like `nwTL`/`nwC` (`... if denom > 0 else 0`).
 - **3.4 (`#10`)** Flux effect (`app.py:~1103-1145`): cleared `input.temperature()` → `None` → `TypeError` escapes the `ValueError`-only `except`; `bodymasses <= 0` → inf/NaN loss. Add `req()` guards (and a finite-bodymass guard) around `calculate_losses`.
-- **3.5 (`#13`)** Zero-biomass keystoneness (`network_analysis.py:~528-553`): all-zero biomass → `relative_biomass` all-NaN → every species classified "Keystone". Special-case `total_biomass == 0`/empty → "Undefined"/raise; guard `np.quantile` on empty. Tests.
+- **3.5 (`#13`)** Zero-biomass keystoneness (`network_analysis.py:~528-553`): the `total_biomass > 0` guard makes `relative_biomass` all-**ZERO** (not NaN) when `total_biomass == 0`; the quartile classification then still labels a degenerate web (a 4-node web yields e.g. `['Keystone','Rare','Rare','Rare']`, driven entirely by the impact quartile — meaningless). Fix: special-case `total_biomass == 0`/empty → all `"Undefined"` (or raise); guard `np.quantile` on empty finite/relative-biomass arrays. **Test: assert `"Undefined"` under zero biomass** (not "all NaN" / not "all Keystone").
 - **3.6 (`#16`)** Logging: add one `logging.basicConfig(level=..., format=...)` at app start, honoring `ECONETPY_LOG_LEVEL` (default INFO). Currently the root logger has no handler, so `logger.info` is dropped and ERROR reaches stderr with no timestamp/level.
 
 ---
@@ -99,7 +100,11 @@ After 2.1, `calculate_keystoneness`'s `species` column holds real names. Add a *
 
 ## Build order & gates
 
-Phases 1→6 in order. Each phase: TDD per task (failing test first for behavior changes; pinned/regression tests), full suite + `import app` green at the phase gate, tag `audit2-phase{N}`. After Phase 2, regenerate and commit `BalticFW.pkl`. After all phases, a **live Playwright smoke**: keystoneness panel shows species names (not `n23`); TL toggle still recomputes; a forced renderer error still shows the clean panel.
+Phases 1→6 in order. Each phase: TDD per task (failing test first for behavior changes; pinned/regression tests), full suite + `import app` green at the phase gate, tag `audit2-phase{N}`.
+
+**Phase 2 pickle handling (load-bearing):** `BalticFW.pkl` is **gitignored**, so it is regenerated, never committed. The 2.1 relabel + 2.2 `nodelist=` + the pickle regen must land **together** (one task), and that task's gate must **`rm -f BalticFW.pkl` then rebuild from source** (`micromamba run -n shiny python load_data.py`) so a stale `n0..n33` cache cannot mask the `nodelist=` crash. Add a test that loads via `load_default_data()` so the gate exercises the on-disk pickle path (not just in-memory graphs).
+
+After all phases, a **live Playwright smoke**: keystoneness panel shows species names (not `n23`); TL toggle still recomputes; a forced renderer error still shows the clean panel.
 
 ## Acceptance criteria
 
@@ -112,6 +117,6 @@ Phases 1→6 in order. Each phase: TDD per task (failing test first for behavior
 
 ## Risks & mitigations
 
-- **Regenerating `BalticFW.pkl`** changes a committed binary → diff is node-id relabeling only; the `assert list(G.nodes())==info['species']` + a round-trip test guard correctness; data values verified identical.
+- **Regenerating `BalticFW.pkl`** — it is *gitignored* (per-machine cache), so the real risk is a **stale cache** on a dev/CI machine still holding `n0..n33` IDs, which would make the 2.2 `nodelist=info['species']` change crash with `NetworkXError`. Mitigated by rebuilding (`rm -f` + `load_data.py`) inside the Phase-2 gate, the `set(species)==set(nodes)` pickle-load validation (2.3), and the `assert list(G.nodes())==info['species']` at load. Species names are unique (verified), so `relabel_nodes` cannot merge nodes; data values are unchanged.
 - **`nodelist=` changes** could reorder a matrix if misused → the post-relabel identity assert makes `nodelist` a no-op for the real data; tests pin per-species outputs.
 - **Phase 6 refactors** are behavior-preserving → the AST guard + full suite + the `app.dashboard_ui()` structural test catch regressions.
