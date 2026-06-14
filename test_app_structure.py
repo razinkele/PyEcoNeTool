@@ -71,3 +71,20 @@ def test_safe_render_passthrough_on_success():
     def ok():
         return "real value"
     assert ok() == "real value"
+
+
+def test_safe_render_below_render_text_order():
+    """@safe_render must work BELOW @render.text (render wraps the safe wrapper)."""
+    from shiny import render
+    app = importlib.import_module("app")
+    @render.text
+    @app.safe_render("text")
+    def boom():
+        raise RuntimeError("x")
+    # Stacking @render.text above @safe_render must not raise at decoration time.
+    # Invoking the safe-wrapped raw function directly must swallow the error and
+    # return the uniform marker rather than propagating the RuntimeError.
+    @app.safe_render("text")
+    def raw_boom():
+        raise RuntimeError("x")
+    assert "could not be computed" in raw_boom().lower()

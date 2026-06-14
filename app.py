@@ -927,6 +927,7 @@ Network Statistics:
 
     @output
     @render.ui
+    @safe_render("ui")
     def network_plot():
         h = f"{input.network_height()}px"
         if input.network_type() == "Topology":
@@ -947,6 +948,7 @@ Network Statistics:
 
     @output
     @render.plot
+    @safe_render("plot")
     def adjacency_heatmap():
         G = current_network()
         info = current_species_info()
@@ -977,6 +979,7 @@ Network Statistics:
 
     @output
     @render.text
+    @safe_render("text")
     def topological_indicators():
         G = current_network()
         indicators = get_topological_indicators(G, trophic_levels=trophic_levels_cached())
@@ -995,6 +998,7 @@ Topological Network Indicators:
 
     @output
     @render.plot
+    @safe_render("plot")
     def trophic_level_histogram():
         tl = trophic_levels_cached()
 
@@ -1029,6 +1033,7 @@ Topological Network Indicators:
 
     @output
     @render.text
+    @safe_render("text")
     def node_weighted_indicators():
         G = current_network()
         info = current_species_info()
@@ -1046,6 +1051,7 @@ Node-Weighted Network Indicators:
 
     @output
     @render.plot
+    @safe_render("plot")
     def biomass_by_group():
         info = current_species_info()
         _, color_map = colors_cached()
@@ -1069,6 +1075,7 @@ Node-Weighted Network Indicators:
 
     @output
     @render.plot
+    @safe_render("plot")
     def biomass_distribution():
         info = current_species_info()
         _, color_map = colors_cached()
@@ -1158,6 +1165,7 @@ Node-Weighted Network Indicators:
 
     @output
     @render.text
+    @safe_render("text")
     def flux_indicators():
         if flux_results() is None:
             return "Click 'Calculate Fluxes' to compute energy fluxes."
@@ -1175,6 +1183,7 @@ Flux-Based Indicators:
 
     @output
     @render.plot
+    @safe_render("plot")
     def flux_heatmap():
         if flux_results() is None:
             fig, ax = plt.subplots(figsize=(8, 6))
@@ -1211,6 +1220,7 @@ Flux-Based Indicators:
 
     @output
     @render.ui
+    @safe_render("ui")
     def flux_network_plot():
         if flux_results() is None:
             return ui.p("Click 'Calculate Fluxes' in the sidebar to generate the flux-weighted network.")
@@ -1223,6 +1233,7 @@ Flux-Based Indicators:
 
     @output
     @render.text
+    @safe_render("text")
     def keystoneness_summary():
         keystoneness_df = keystoneness_cached()
 
@@ -1246,6 +1257,7 @@ Keystoneness Analysis Summary:
 
     @output
     @render.plot
+    @safe_render("plot")
     def keystoneness_scatter():
         keystoneness_df = keystoneness_cached()
 
@@ -1306,6 +1318,7 @@ Keystoneness Analysis Summary:
 
     @output
     @render.plot
+    @safe_render("plot")
     def mti_heatmap():
         info = current_species_info()
 
