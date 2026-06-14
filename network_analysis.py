@@ -14,6 +14,7 @@ import pandas as pd
 import networkx as nx
 from scipy.linalg import inv
 from typing import Dict, List
+from collections import deque
 import warnings
 
 # Import flux calculation functions
@@ -42,7 +43,29 @@ EDGE_WIDTH_MIN = 0.1              # Minimum edge width
 # TROPHIC LEVEL CALCULATION
 # ============================================================================
 
-def calculate_trophic_levels(G: nx.DiGraph) -> np.ndarray:
+def _shortest_trophic_levels(G: nx.DiGraph) -> np.ndarray:
+    """Williams & Martinez (2004) shortest trophic level: 1 + shortest prey-chain
+    length from a basal node (in-degree 0). Multi-source BFS along prey->predator
+    edges. Basal-unreachable nodes (e.g. a closed cycle with no basal path) -> NaN.
+    Returned in list(G.nodes()) order."""
+    nodes = list(G.nodes())
+    idx = {n: i for i, n in enumerate(nodes)}
+    dist = np.full(len(nodes), np.nan)
+    dq = deque()
+    for node in nodes:
+        if G.in_degree(node) == 0:
+            dist[idx[node]] = 0.0
+            dq.append(node)
+    while dq:
+        u = dq.popleft()
+        for v in G.successors(u):  # v is a predator of u
+            if np.isnan(dist[idx[v]]):
+                dist[idx[v]] = dist[idx[u]] + 1.0
+                dq.append(v)
+    return 1.0 + dist
+
+
+def calculate_trophic_levels(G: nx.DiGraph, method: str = "prey_averaged") -> np.ndarray:
     """
     Calculate trophic levels for a food web.
 
@@ -53,9 +76,15 @@ def calculate_trophic_levels(G: nx.DiGraph) -> np.ndarray:
     Args:
         G: NetworkX DiGraph representing the food web (directed graph)
            Edges go from prey to predator
+        method: trophic-level method, one of 'prey_averaged' (default) or
+           'short_weighted'. 'prey_averaged' is the clamped linear-solve result.
+           'short_weighted' is the Williams & Martinez (2004) short-weighted TL
+           (the mean of the shortest and prey-averaged TL); it may return NaN for
+           basal-unreachable cycle nodes.
 
     Returns:
-        numpy array of trophic levels for each species/node
+        numpy array of trophic levels for each species/node (in list(G.nodes())
+        order). For method='short_weighted', basal-unreachable cycle nodes are NaN.
 
     References:
         Williams, R. J., & Martinez, N. D. (2004). Limits to trophic levels and
@@ -109,14 +138,20 @@ def calculate_trophic_levels(G: nx.DiGraph) -> np.ndarray:
         )
         tl = np.clip(np.nan_to_num(tl, nan=1.0, posinf=100.0, neginf=1.0), 1.0, 100.0)
 
-    return tl
+    if method == "prey_averaged":
+        return tl
+    if method == "short_weighted":
+        # SWTL = (shortest_TL + prey_averaged_TL) / 2; NaN where basal-unreachable.
+        return (_shortest_trophic_levels(G) + tl) / 2.0
+    raise ValueError(f"Unknown trophic-level method {method!r}; expected "
+                     "'prey_averaged' or 'short_weighted'.")
 
 
 # ============================================================================
 # TOPOLOGICAL (QUALITATIVE) INDICATORS
 # ============================================================================
 
-def get_topological_indicators(G: nx.DiGraph) -> Dict[str, float]:
+def get_topological_indicators(G: nx.DiGraph, trophic_levels: np.ndarray = None) -> Dict[str, float]:
     """
     Calculate topological (qualitative) indicators for a food web.
 
@@ -173,12 +208,13 @@ def get_topological_indicators(G: nx.DiGraph) -> Dict[str, float]:
             largest_cc = max(nx.weakly_connected_components(G), key=len)
             subG = G.subgraph(largest_cc).to_undirected()
             ShortPath = nx.average_shortest_path_length(subG)
-    except:
+    except (nx.NetworkXError, nx.NetworkXPointlessConcept, ValueError):
+        warnings.warn("Mean shortest path undefined; returning NaN")
         ShortPath = np.nan
 
     # Trophic levels
-    tlnodes = calculate_trophic_levels(G)
-    TL = np.mean(tlnodes)
+    tlnodes = trophic_levels if trophic_levels is not None else calculate_trophic_levels(G)
+    TL = np.nanmean(tlnodes)
 
     # Omnivory index (Christensen & Pauly 1992): diet-fraction-weighted variance
     # of prey trophic levels, centered on (TL_i - 1) = the diet-weighted mean
@@ -212,7 +248,7 @@ def get_topological_indicators(G: nx.DiGraph) -> Dict[str, float]:
 # NODE-WEIGHTED (QUANTITATIVE) INDICATORS
 # ============================================================================
 
-def get_node_weighted_indicators(G: nx.DiGraph, biomass: np.ndarray) -> Dict[str, float]:
+def get_node_weighted_indicators(G: nx.DiGraph, biomass: np.ndarray, trophic_levels: np.ndarray = None) -> Dict[str, float]:
     """
     Calculate node-weighted (quantitative) indicators for a food web.
 
@@ -247,7 +283,7 @@ def get_node_weighted_indicators(G: nx.DiGraph, biomass: np.ndarray) -> Dict[str
         warnings.warn("NA values found in biomass, results may be unreliable")
 
     # Calculate trophic levels
-    tlnodes = calculate_trophic_levels(G)
+    tlnodes = trophic_levels if trophic_levels is not None else calculate_trophic_levels(G)
 
     # Get degrees
     in_degrees = np.array([G.in_degree(node) for node in G.nodes()])
@@ -269,7 +305,9 @@ def get_node_weighted_indicators(G: nx.DiGraph, biomass: np.ndarray) -> Dict[str
     nwV = (np.sum((out_degrees * biomass)[prey]) / np.sum(biomass[prey])) if np.sum(prey) > 0 else 0
 
     # Node-weighted mean trophic level
-    nwTL = np.sum(tlnodes * biomass) / total_biomass if total_biomass > 0 else 0
+    finite_tl = np.isfinite(tlnodes)
+    nwTL = (np.sum((tlnodes * biomass)[finite_tl]) / np.sum(biomass[finite_tl])
+            if total_biomass > 0 and np.sum(biomass[finite_tl]) > 0 else 0)
 
     return {
         'nwC': nwC,
@@ -456,6 +494,7 @@ def calculate_keystoneness(
     biomass: np.ndarray,
     impact_quantile: float = 0.75,
     biomass_quantile: float = 0.25,
+    mti: np.ndarray = None,
 ) -> pd.DataFrame:
     """
     Calculate Keystoneness Index.
@@ -480,7 +519,7 @@ def calculate_keystoneness(
         food web models. Ecological Modelling, 195(3-4), 153-171.
     """
     # Calculate MTI matrix
-    MTI = calculate_mti(G)
+    MTI = mti if mti is not None else calculate_mti(G)
 
     # Overall effect epsilon_i = L2 norm of species i's impacts.
     # MTI[i,j] = impact of j on i, so species i's impacts are column i.

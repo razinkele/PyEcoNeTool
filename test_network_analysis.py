@@ -162,6 +162,57 @@ def test_trophic_levels_convergence():
                 "Top predators should have higher TL than basal species"
 
 
+def test_trophic_levels_method_default_unchanged(simple_omnivory):
+    """prey_averaged is the default and unchanged: omnivore_web -> [1,2,2.5]."""
+    G, _ = simple_omnivory
+    tl = calculate_trophic_levels(G)               # default
+    tl2 = calculate_trophic_levels(G, method="prey_averaged")
+    nodes = list(G.nodes())                          # ['A','B','C']
+    assert np.allclose([tl[nodes.index(n)] for n in ['A', 'B', 'C']], [1, 2, 2.5])
+    assert np.allclose(tl, tl2)
+
+
+def test_trophic_levels_short_weighted_pins(simple_omnivory, simple_linear_chain):
+    """short_weighted: chain == prey-averaged; omnivore C = 2.25."""
+    Gc, _ = simple_linear_chain
+    assert np.allclose(calculate_trophic_levels(Gc, method="short_weighted"),
+                       calculate_trophic_levels(Gc, method="prey_averaged"))
+    Go, _ = simple_omnivory
+    sw = calculate_trophic_levels(Go, method="short_weighted")
+    nodes = list(Go.nodes())
+    assert np.allclose([sw[nodes.index(n)] for n in ['A', 'B', 'C']], [1, 2, 2.25])
+
+
+def test_trophic_levels_short_weighted_multibasal():
+    """Explicit node order A,B,C,D so the positional pin holds."""
+    G = nx.DiGraph()
+    G.add_nodes_from(['A', 'B', 'C', 'D'])
+    G.add_edges_from([('A', 'C'), ('B', 'C'), ('B', 'D'), ('C', 'D')])
+    sw = calculate_trophic_levels(G, method="short_weighted")
+    assert np.allclose(sw, [1, 1, 2, 2.25]), sw
+
+
+def test_trophic_levels_short_weighted_cycles():
+    """basal-reachable cycle is finite & shorter-biased; closed cycle is NaN."""
+    import warnings as _w
+    Gr = nx.DiGraph(); Gr.add_edges_from([(0, 1), (1, 2), (2, 1)])
+    with _w.catch_warnings():
+        _w.simplefilter("ignore")
+        sw = calculate_trophic_levels(Gr, method="short_weighted")
+    assert np.allclose(sw, [1, 3, 4]), sw
+    Gc = nx.DiGraph(); Gc.add_edges_from([(0, 1), (1, 0)])
+    with _w.catch_warnings():
+        _w.simplefilter("ignore")
+        swc = calculate_trophic_levels(Gc, method="short_weighted")
+    assert np.all(np.isnan(swc)), swc
+
+
+def test_trophic_levels_unknown_method_raises(simple_linear_chain):
+    G, _ = simple_linear_chain
+    with pytest.raises(ValueError, match="method"):
+        calculate_trophic_levels(G, method="bogus")
+
+
 # ============================================================================
 # TOPOLOGICAL INDICATORS TESTS
 # ============================================================================
@@ -480,6 +531,19 @@ def test_keystoneness_valls_quartile_classification():
         {"Keystone", "Dominant", "Rare", "Undefined"}), df
 
 
+def test_keystoneness_uses_passed_mti_sentinel(simple_linear_chain):
+    """Inject an MTI that differs from the internal one; overall_effect (the
+    column L2 norm of MTI) must reflect the injected matrix."""
+    G, info = simple_linear_chain
+    bm = info['meanB'].values
+    sentinel = np.array([[0.0, 0.0, 0.0],
+                         [3.0, 0.0, 0.0],
+                         [0.0, 4.0, 0.0]])   # column 0 L2 = 3
+    df = calculate_keystoneness(G, bm, mti=sentinel)
+    row0 = df[df['species'] == 'A'].iloc[0]
+    assert np.isclose(row0['overall_effect'], 3.0), row0['overall_effect']
+
+
 # ============================================================================
 # INTEGRATION TESTS
 # ============================================================================
@@ -555,6 +619,75 @@ def test_keystoneness_ranking_invariant_to_log_base(n, seed):
     ks = df['keystoneness'].values
     finite = ks[np.isfinite(ks)]
     assert np.all(np.diff(finite) <= 1e-9), finite  # df is returned sorted desc
+
+
+def test_shortpath_narrowed_except_warns_not_swallows(monkeypatch):
+    """The ShortPath except must catch NetworkX errors and warn (not silently
+    swallow everything). Force average_shortest_path_length to raise a NetworkX
+    error and assert ShortPath becomes NaN with a warning."""
+    import warnings as _w
+    G = nx.DiGraph()
+    G.add_edges_from([('A', 'B'), ('B', 'C')])
+    monkeypatch.setattr(nx, "average_shortest_path_length",
+                        lambda *a, **k: (_ for _ in ()).throw(nx.NetworkXError("boom")))
+    with _w.catch_warnings(record=True) as caught:
+        _w.simplefilter("always")
+        ind = get_topological_indicators(G)
+    assert np.isnan(ind['ShortPath']), ind
+    assert any("shortest path" in str(x.message).lower() for x in caught), \
+        [str(x.message) for x in caught]
+
+
+def test_shortpath_single_node_is_zero_no_warning():
+    """A single-node DiGraph is weakly connected: ShortPath == 0, and the
+    'Mean shortest path undefined' warning does NOT fire (verified nx 3.6.1)."""
+    import warnings as _w
+    G = nx.DiGraph()
+    G.add_node('A')
+    with _w.catch_warnings(record=True) as caught:
+        _w.simplefilter("always")
+        ind = get_topological_indicators(G)
+    assert ind['ShortPath'] == 0
+    assert not any("shortest path" in str(x.message).lower() for x in caught), \
+        [str(x.message) for x in caught]
+
+
+def test_topological_indicators_uses_passed_tl_sentinel(simple_linear_chain):
+    """Inject a TL that DIFFERS from the internal value; the system TL mean must
+    reflect the injected value (proves the param is consumed, not recomputed)."""
+    G, _ = simple_linear_chain          # real TL = [1,2,3] -> mean 2.0
+    sentinel = np.array([1.0, 2.0, 5.0])  # mean 8/3
+    ind = get_topological_indicators(G, trophic_levels=sentinel)
+    assert np.isclose(ind['TL'], 8.0 / 3.0), ind['TL']
+    ind_none = get_topological_indicators(G)
+    assert np.isclose(ind_none['TL'], 2.0), ind_none['TL']
+
+
+def test_topological_tl_mean_nan_safe(simple_linear_chain):
+    """A NaN TL entry (short-weighted closed-cycle node) must not poison the
+    system TL mean. RED under np.mean (-> NaN), GREEN after np.nanmean."""
+    G, _ = simple_linear_chain
+    ind = get_topological_indicators(G, trophic_levels=np.array([1.0, np.nan, 3.0]))
+    assert np.isclose(ind['TL'], 2.0), ind['TL']
+
+
+def test_node_weighted_uses_passed_tl_sentinel(simple_linear_chain):
+    G, info = simple_linear_chain
+    bm = info['meanB'].values            # [100,50,25]
+    sentinel = np.array([1.0, 2.0, 5.0])
+    ind = get_node_weighted_indicators(G, bm, trophic_levels=sentinel)
+    expected = np.sum(sentinel * bm) / np.sum(bm)
+    assert np.isclose(ind['nwTL'], expected), ind['nwTL']
+
+
+def test_node_weighted_nwTL_masks_nan_tl(simple_linear_chain):
+    """A NaN TL entry must not poison nwTL (short_weighted can inject NaN)."""
+    G, info = simple_linear_chain
+    bm = info['meanB'].values
+    tl = np.array([1.0, np.nan, 3.0])
+    ind = get_node_weighted_indicators(G, bm, trophic_levels=tl)
+    expected = (1.0 * bm[0] + 3.0 * bm[2]) / (bm[0] + bm[2])
+    assert np.isclose(ind['nwTL'], expected), ind['nwTL']
 
 
 if __name__ == "__main__":
