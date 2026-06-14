@@ -245,6 +245,7 @@ def validate_flux_equilibrium(
     losses: np.ndarray,
     efficiencies: np.ndarray,
     biomasses: Optional[np.ndarray] = None,
+    bioms_losses: bool = True,
     tolerance: float = 1e-6
 ) -> dict:
     """
@@ -273,7 +274,7 @@ def validate_flux_equilibrium(
     inflows = flux_matrix.T @ efficiencies
 
     L = losses.copy()
-    if biomasses is not None:
+    if bioms_losses and biomasses is not None:
         L = L * biomasses
     outflows = np.sum(flux_matrix, axis=1) + L
 

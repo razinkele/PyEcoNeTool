@@ -1088,6 +1088,7 @@ Node-Weighted Network Indicators:
         # Calculate fluxes using the fluxweb algorithm (Gauzens et al. 2019).
         # fluxing() raises ValueError on an infeasible (negative-ingestion)
         # system; surface that as a clean notification instead of a traceback.
+        bioms_losses_flag = True  # single source of truth for solver + validator
         try:
             flux_matrix = fluxing(
                 mat=adj_matrix,
@@ -1095,7 +1096,7 @@ Node-Weighted Network Indicators:
                 losses=losses,
                 efficiencies=efficiencies,
                 bioms_prefs=True,
-                bioms_losses=True,
+                bioms_losses=bioms_losses_flag,
                 ef_level="prey"
             )
         except ValueError as exc:
@@ -1116,7 +1117,8 @@ Node-Weighted Network Indicators:
             flux_matrix / FLUX_CONVERSION_FACTOR,  # Convert back to J/sec for validation
             losses,
             efficiencies,
-            biomass
+            biomass,
+            bioms_losses=bioms_losses_flag
         )
 
         flux_results.set({

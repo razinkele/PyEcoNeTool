@@ -559,6 +559,23 @@ def test_validate_flux_equilibrium_catches_imbalanced_consumer():
     assert result['max_imbalance'] > 1.0, result
 
 
+def test_validate_flux_equilibrium_honors_bioms_losses_flag():
+    """validator must mirror the solver's bioms_losses gating. On a flux solved
+    with bioms_losses=False, validating with bioms_losses=False is balanced;
+    validating the SAME flux with bioms_losses=True reports the biomass-scaled
+    residual (the flag changes the reported magnitude)."""
+    mat = np.array([[0, 1, 0], [0, 0, 1], [0, 0, 0]])
+    L = np.array([2.0, 3.0, 5.0])
+    e = np.array([0.5, 0.6, 0.7])
+    bm = np.array([10.0, 4.0, 2.0])
+    flux = fluxing(mat=mat, biomasses=bm, losses=L, efficiencies=e,
+                   bioms_prefs=True, bioms_losses=False, ef_level="prey")
+    r_false = validate_flux_equilibrium(flux, L, e, bm, bioms_losses=False)
+    r_true = validate_flux_equilibrium(flux, L, e, bm, bioms_losses=True)
+    assert r_false['balanced'] is True, r_false
+    assert r_true['max_imbalance'] > r_false['max_imbalance'], (r_true, r_false)
+
+
 if __name__ == "__main__":
     # Run tests with pytest
     pytest.main([__file__, '-v', '--tb=short'])
