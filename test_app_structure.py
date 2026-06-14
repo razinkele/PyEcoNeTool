@@ -1,6 +1,10 @@
 """Structural guards on app.py (no runtime Shiny needed)."""
 import ast
 import pathlib
+import importlib
+import logging
+import matplotlib
+matplotlib.use("Agg")
 
 APP = pathlib.Path(__file__).parent / "app.py"
 RENDERERS = {
@@ -28,3 +32,42 @@ def test_analytical_renderers_use_caches_not_direct_compute():
             if bad:
                 offenders[node.name] = sorted(bad)
     assert not offenders, f"renderers recompute cached values directly: {offenders}"
+
+
+def test_safe_render_text_returns_marker_and_logs(caplog):
+    app = importlib.import_module("app")
+    @app.safe_render("text")
+    def boom():
+        raise RuntimeError("x")
+    with caplog.at_level(logging.ERROR):
+        out = boom()
+    assert isinstance(out, str) and "could not be computed" in out.lower()
+    assert any("boom" in r.getMessage() or "failed" in r.getMessage().lower()
+               for r in caplog.records)
+
+
+def test_safe_render_plot_returns_figure_with_marker():
+    app = importlib.import_module("app")
+    from matplotlib.figure import Figure
+    @app.safe_render("plot")
+    def boom():
+        raise RuntimeError("x")
+    fig = boom()
+    assert isinstance(fig, Figure)
+    texts = " ".join(t.get_text().lower() for ax in fig.axes for t in ax.texts)
+    assert "could not be computed" in texts
+
+
+def test_safe_render_ui_returns_tag_with_marker():
+    app = importlib.import_module("app")
+    out = app._error_element("ui")
+    # ui elements stringify to HTML carrying the message
+    assert "could not be computed" in str(out).lower()
+
+
+def test_safe_render_passthrough_on_success():
+    app = importlib.import_module("app")
+    @app.safe_render("text")
+    def ok():
+        return "real value"
+    assert ok() == "real value"

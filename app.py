@@ -16,6 +16,7 @@ import seaborn as sns
 from pathlib import Path
 import pickle
 import time
+import functools
 import shinyswatch
 
 # Import custom modules
@@ -46,6 +47,37 @@ from feedback_reporter import collect_system_context, submit_feedback
 
 import logging
 logger = logging.getLogger("econetpy.app")
+
+_ERROR_MSG = "This panel could not be computed — see logs."
+
+
+def _error_element(kind):
+    """Uniform error element per render kind: 'text' -> str, 'plot' -> Figure,
+    'ui' -> ui.div."""
+    if kind == "plot":
+        fig, ax = plt.subplots()
+        ax.text(0.5, 0.5, _ERROR_MSG, ha="center", va="center", wrap=True)
+        ax.axis("off")
+        return fig
+    if kind == "ui":
+        return ui.div(_ERROR_MSG, class_="econetpy-render-error")
+    return _ERROR_MSG
+
+
+def safe_render(kind):
+    """Decorator: wrap a render function so a compute exception logs and returns
+    a uniform error element instead of a raw traceback. Apply BELOW @render.*."""
+    def decorator(fn):
+        @functools.wraps(fn)
+        def wrapper(*args, **kwargs):
+            try:
+                return fn(*args, **kwargs)
+            except Exception:
+                logger.exception("Render %s failed", fn.__name__)
+                return _error_element(kind)
+        return wrapper
+    return decorator
+
 
 # ============================================================================
 # DATA LOADING
