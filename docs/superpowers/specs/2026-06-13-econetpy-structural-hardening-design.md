@@ -97,7 +97,7 @@ Each function: `tl = trophic_levels if trophic_levels is not None else calculate
 **Omni tracks the chosen method (by design):** `get_topological_indicators` computes the omnivory index from the threaded `trophic_levels`, so under `short_weighted` it changes consistently with TL — this is correct (omnivory is a function of trophic level, so the metric choice must propagate). For `omnivore_web` under `short_weighted` (`TL=[1,2,2.25]`): `Omni = nanmean([NaN, 0, 0.3125]) = 0.15625` (pinned). The default prey-averaged `Omni=0.125` pin is unchanged.
 
 **NaN-safe aggregation (short_weighted may inject NaN TL):**
-- `get_topological_indicators` system `TL` already uses `np.nanmean`; the omnivory `nanmean` guard is already present.
+- `get_topological_indicators` system `TL` **must be changed** from `np.mean(tlnodes)` to `np.nanmean(tlnodes)` (the current code at network_analysis.py:181 is `np.mean`, which a NaN short-weighted TL would poison); the omnivory `nanmean` guard is already present.
 - `get_node_weighted_indicators` **must mask non-finite TL** in the weighted `nwTL` sum (a `nanmean` does not fix a biomass-weighted sum): `m = np.isfinite(tl); nwTL = np.sum((tl*biomass)[m]) / np.sum(biomass[m])`.
 
 **Tests — SENTINEL equivalence (a known-TL equality test is trivial: passed-in and internal are the *same* function on the *same* graph and prove nothing):**
@@ -177,7 +177,7 @@ Each task follows TDD; frequent commits; `micromamba run -n shiny python -m pyte
 
 ## Risks & Mitigations
 
-- **Short-weighted NaN cascade** into (1) system TL mean — guarded by `np.nanmean`; (2) `nwTL` weighted sum — fixed by the `np.isfinite` mask (B2); (3) **viz y-normalization** — fixed by `np.nanmin`/`np.nanmax` + per-node `isfinite` guard + sentinel y (B2). These are the three real sinks; all addressed.
+- **Short-weighted NaN cascade** into (1) system TL mean — fixed by changing `np.mean`→`np.nanmean` at network_analysis.py:181 (B2); (2) `nwTL` weighted sum — fixed by the `np.isfinite` mask (B2); (3) **viz y-normalization** — fixed by `np.nanmin`/`np.nanmax` + per-node `isfinite` guard + sentinel y (B2). These are the three real sinks; all addressed.
 - **Threading divergence** (a function uses a different TL than passed) → SENTINEL equivalence tests (B2), not trivial equality.
 - **Silent cache bypass** (a renderer keeps recomputing) → AST/grep dedup guard test (B3).
 - **`@safe_render` masking real bugs** → logs full traceback via `logger.exception`; affects only the display path; tests assert the log fired.

@@ -412,6 +412,14 @@ def test_topological_indicators_uses_passed_tl_sentinel(simple_linear_chain):
     assert np.isclose(ind_none['TL'], 2.0), ind_none['TL']
 
 
+def test_topological_tl_mean_nan_safe(simple_linear_chain):
+    """A NaN TL entry (short-weighted closed-cycle node) must not poison the
+    system TL mean. RED under np.mean (-> NaN), GREEN after np.nanmean."""
+    G, _ = simple_linear_chain
+    ind = get_topological_indicators(G, trophic_levels=np.array([1.0, np.nan, 3.0]))
+    assert np.isclose(ind['TL'], 2.0), ind['TL']
+
+
 def test_node_weighted_uses_passed_tl_sentinel(simple_linear_chain):
     G, info = simple_linear_chain
     bm = info['meanB'].values            # [100,50,25]
@@ -450,7 +458,13 @@ Change the internal TL computation from `tlnodes = calculate_trophic_levels(G)` 
     tlnodes = trophic_levels if trophic_levels is not None else calculate_trophic_levels(G)
 ```
 
-(The existing system-mean already uses `np.nanmean(tlnodes)` and the omnivory block is already `nanmean`-guarded — no further change there.)
+Also make the **system TL mean** NaN-safe (a short-weighted closed-cycle TL can be NaN). Change the line `TL = np.mean(tlnodes)` (network_analysis.py:181) to:
+
+```python
+    TL = np.nanmean(tlnodes)
+```
+
+(The omnivory block in this function is already `nanmean`-guarded; only the system mean needs this change.)
 
 - [ ] **Step 4: Add the optional arg + nwTL mask to `get_node_weighted_indicators`**
 
@@ -734,10 +748,12 @@ Also change `keystoneness_cached` to thread the MTI cache (avoid double-computin
 Inside `server(...)`, add a helper (place it near the other reactive defs). It returns the **built pyvis `Network`** (NOT an iframe — `download_network` needs `net.generate_html()`):
 
 ```python
-    def _build_network(kind):
+    def _build_network(kind, height="600px"):
         """Build the topology or flux pyvis Network from the shared caches.
         kind in {'topology','flux'}. Returns a pyvis Network; callers wrap it
-        (render_network for the UI panels, net.generate_html() for download)."""
+        (render_network for the UI panels, net.generate_html() for download).
+        The 'flux' kind reads flux_results()['flux_matrix'] — callers MUST guard
+        that flux_results() is not None before requesting kind='flux'."""
         G = current_network()
         info = current_species_info()
         node_colors, _ = colors_cached()
@@ -747,12 +763,13 @@ Inside `server(...)`, add a helper (place it near the other reactive defs). It r
                 G, species_names=info['species'].tolist(),
                 functional_groups=info['fg'].tolist(),
                 biomass=info['meanB'].values, colors=node_colors,
-                trophic_levels=tl)
+                height=height, trophic_levels=tl)
         return create_flux_network(
             G, species_names=info['species'].tolist(),
             functional_groups=info['fg'].tolist(),
             biomass=info['meanB'].values, colors=node_colors,
-            flux_matrix=flux_results()['flux_matrix'], trophic_levels=tl)
+            flux_matrix=flux_results()['flux_matrix'],
+            height=height, trophic_levels=tl)
 ```
 
 - [ ] **Step 3: Thread caches into the indicator/keystoneness renderers**
@@ -761,16 +778,54 @@ In `app.py`, update the analytical renderers so none recompute TL/MTI/colors dir
 
 - In `topological_indicators`: change `get_topological_indicators(G)` → `get_topological_indicators(G, trophic_levels=trophic_levels_cached())`.
 - In `node_weighted_indicators`: change `get_node_weighted_indicators(G, biomass)` → `get_node_weighted_indicators(G, biomass, trophic_levels=trophic_levels_cached())`.
-- Replace every `get_functional_group_colors(info['fg'].tolist())` call (all 6 sites) with `colors_cached()` — e.g. `node_colors, color_map = colors_cached()` or `node_colors, _ = colors_cached()` matching the existing unpacking at each site.
+- Replace the remaining `get_functional_group_colors(info['fg'].tolist())` calls with `colors_cached()` — e.g. `node_colors, color_map = colors_cached()` or `node_colors, _ = colors_cached()`, matching the existing unpacking at each site. NOTE: `network_plot`, `flux_network_plot`, and `download_network` no longer call it directly after Step 4 (they go through `_build_network`, which uses `colors_cached`); switch the *other* sites (e.g. `biomass_by_group`, `functional_groups_legend`). After this step + Step 4, no analytical renderer calls `get_functional_group_colors` directly — the Task B6 AST guard enforces exactly that.
 - The keystoneness renderers already use `keystoneness_cached()`; `mti_heatmap` already uses `mti_cached()` — leave those.
 
-- [ ] **Step 4: Route the three network renderers through `_build_network`**
+- [ ] **Step 4: Route the three network renderers through `_build_network` — PRESERVING the `input.network_type()` branch**
 
-- `network_plot` (`@render.ui`): keep its existing guard, then `net = _build_network("topology")` and `return render_network(net, height=..., width="100%")` using the same height expression the current code uses.
-- `flux_network_plot` (`@render.ui`): keep its `if flux_results() is None:` guard returning the existing `ui.p(...)`, then `net = _build_network("flux")` and `return render_network(net, height="600px", width="100%")`.
-- `download_network`: keep its existing topology fallback/guard, then `net = _build_network("topology")` and serve `net.generate_html()` exactly as the current handler streams HTML.
+`network_plot` and `download_network` currently choose topology vs flux based on `input.network_type()` ("Topology" / "Flux-Weighted"). Keep that selection; only the build + wrap changes.
 
-(Read each renderer's current body first; preserve its guards and height expressions verbatim — only the build + wrap changes.)
+`network_plot` (`@render.ui`, app.py:861) becomes:
+
+```python
+    @output
+    @render.ui
+    def network_plot():
+        h = f"{input.network_height()}px"
+        if input.network_type() == "Topology":
+            net = _build_network("topology", height=h)
+        else:
+            if flux_results() is None:
+                return ui.p("Please calculate fluxes first in the Energy Fluxes tab.")
+            net = _build_network("flux", height=h)
+        return render_network(net, height=h, width="100%")
+```
+
+`flux_network_plot` (`@render.ui`, app.py:1182) becomes:
+
+```python
+    @output
+    @render.ui
+    def flux_network_plot():
+        if flux_results() is None:
+            return ui.p("Click 'Calculate Fluxes' in the sidebar to generate the flux-weighted network.")
+        net = _build_network("flux", height="600px")
+        return render_network(net, height="600px", width="100%")
+```
+
+`download_network` (`@render.download`, app.py:896) becomes:
+
+```python
+    @render.download(filename="econetool_network.html")
+    def download_network():
+        if input.network_type() == "Flux-Weighted" and flux_results() is not None:
+            net = _build_network("flux")
+        else:
+            net = _build_network("topology")
+        yield net.generate_html()
+```
+
+(Verify the exact `ui.p(...)` message strings against the current bodies and keep them verbatim; only the build/wrap lines change.)
 
 - [ ] **Step 5: Import-smoke (toggle not added yet — `input.tl_method()` will error at runtime until Task B7, but import must succeed)**
 
@@ -1046,9 +1101,9 @@ Note: keep this test minimal — the substantive decorator behavior is covered b
 
 For each renderer, insert the `@safe_render("<kind>")` line **directly above the `def`** (below the existing `@output`/`@render.*` lines), with `<kind>` matching the render decorator:
 
-- `@render.text` renderers → `@safe_render("text")`: `topological_indicators`, `flux_indicators`, `keystoneness_summary`.
-- `@render.plot` renderers → `@safe_render("plot")`: `trophic_level_histogram`, `adjacency_heatmap`, `biomass_by_group`, `biomass_distribution`, `flux_heatmap`, `keystoneness_scatter`, `mti_heatmap`.
-- `@render.ui` renderers → `@safe_render("ui")`: `network_plot`, `flux_network_plot`, `node_weighted_indicators` (verify each one's actual `@render.*` kind before decorating; match the kind exactly).
+- `@render.text` renderers (4) → `@safe_render("text")`: `topological_indicators`, `flux_indicators`, `keystoneness_summary`, `node_weighted_indicators` (this one is `@render.text` at `app.py:1002` — its error path must return the plain string, NOT a `ui.div`).
+- `@render.plot` renderers (7) → `@safe_render("plot")`: `trophic_level_histogram`, `adjacency_heatmap`, `biomass_by_group`, `biomass_distribution`, `flux_heatmap`, `keystoneness_scatter`, `mti_heatmap`.
+- `@render.ui` renderers (2) → `@safe_render("ui")`: `network_plot`, `flux_network_plot` only. (Still verify each one's actual `@render.*` kind against `app.py` before decorating; match the kind exactly.)
 
 Example (topological_indicators):
 
