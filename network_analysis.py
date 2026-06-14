@@ -14,6 +14,7 @@ import pandas as pd
 import networkx as nx
 from scipy.linalg import inv
 from typing import Dict, List
+from collections import deque
 import warnings
 
 # Import flux calculation functions
@@ -42,7 +43,29 @@ EDGE_WIDTH_MIN = 0.1              # Minimum edge width
 # TROPHIC LEVEL CALCULATION
 # ============================================================================
 
-def calculate_trophic_levels(G: nx.DiGraph) -> np.ndarray:
+def _shortest_trophic_levels(G: nx.DiGraph) -> np.ndarray:
+    """Williams & Martinez (2004) shortest trophic level: 1 + shortest prey-chain
+    length from a basal node (in-degree 0). Multi-source BFS along prey->predator
+    edges. Basal-unreachable nodes (e.g. a closed cycle with no basal path) -> NaN.
+    Returned in list(G.nodes()) order."""
+    nodes = list(G.nodes())
+    idx = {n: i for i, n in enumerate(nodes)}
+    dist = np.full(len(nodes), np.nan)
+    dq = deque()
+    for node in nodes:
+        if G.in_degree(node) == 0:
+            dist[idx[node]] = 0.0
+            dq.append(node)
+    while dq:
+        u = dq.popleft()
+        for v in G.successors(u):  # v is a predator of u
+            if np.isnan(dist[idx[v]]):
+                dist[idx[v]] = dist[idx[u]] + 1.0
+                dq.append(v)
+    return 1.0 + dist
+
+
+def calculate_trophic_levels(G: nx.DiGraph, method: str = "prey_averaged") -> np.ndarray:
     """
     Calculate trophic levels for a food web.
 
@@ -53,9 +76,15 @@ def calculate_trophic_levels(G: nx.DiGraph) -> np.ndarray:
     Args:
         G: NetworkX DiGraph representing the food web (directed graph)
            Edges go from prey to predator
+        method: trophic-level method, one of 'prey_averaged' (default) or
+           'short_weighted'. 'prey_averaged' is the clamped linear-solve result.
+           'short_weighted' is the Williams & Martinez (2004) short-weighted TL
+           (the mean of the shortest and prey-averaged TL); it may return NaN for
+           basal-unreachable cycle nodes.
 
     Returns:
-        numpy array of trophic levels for each species/node
+        numpy array of trophic levels for each species/node (in list(G.nodes())
+        order). For method='short_weighted', basal-unreachable cycle nodes are NaN.
 
     References:
         Williams, R. J., & Martinez, N. D. (2004). Limits to trophic levels and
@@ -109,7 +138,13 @@ def calculate_trophic_levels(G: nx.DiGraph) -> np.ndarray:
         )
         tl = np.clip(np.nan_to_num(tl, nan=1.0, posinf=100.0, neginf=1.0), 1.0, 100.0)
 
-    return tl
+    if method == "prey_averaged":
+        return tl
+    if method == "short_weighted":
+        # SWTL = (shortest_TL + prey_averaged_TL) / 2; NaN where basal-unreachable.
+        return (_shortest_trophic_levels(G) + tl) / 2.0
+    raise ValueError(f"Unknown trophic-level method {method!r}; expected "
+                     "'prey_averaged' or 'short_weighted'.")
 
 
 # ============================================================================
