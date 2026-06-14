@@ -559,7 +559,7 @@ def server(input, output, session):
 
     @reactive.calc
     def trophic_levels_cached():
-        return calculate_trophic_levels(current_network())
+        return calculate_trophic_levels(current_network(), method=input.tl_method())
 
     @reactive.calc
     def mti_cached():
@@ -567,7 +567,36 @@ def server(input, output, session):
 
     @reactive.calc
     def keystoneness_cached():
-        return calculate_keystoneness(current_network(), current_species_info()["meanB"].values)
+        return calculate_keystoneness(current_network(), current_species_info()["meanB"].values,
+                                      mti=mti_cached())
+
+    @reactive.calc
+    def colors_cached():
+        node_colors, color_map = get_functional_group_colors(current_species_info()['fg'].tolist())
+        return node_colors, color_map
+
+    def _build_network(kind, height="600px"):
+        """Build the topology or flux pyvis Network from the shared caches.
+        kind in {'topology','flux'}. Returns a pyvis Network; callers wrap it
+        (render_network for the UI panels, net.generate_html() for download).
+        The 'flux' kind reads flux_results()['flux_matrix'] — callers MUST guard
+        that flux_results() is not None before requesting kind='flux'."""
+        G = current_network()
+        info = current_species_info()
+        node_colors, _ = colors_cached()
+        tl = trophic_levels_cached()
+        if kind == "topology":
+            return create_topology_network(
+                G, species_names=info['species'].tolist(),
+                functional_groups=info['fg'].tolist(),
+                biomass=info['meanB'].values, colors=node_colors,
+                height=height, trophic_levels=tl)
+        return create_flux_network(
+            G, species_names=info['species'].tolist(),
+            functional_groups=info['fg'].tolist(),
+            biomass=info['meanB'].values, colors=node_colors,
+            flux_matrix=flux_results()['flux_matrix'],
+            height=height, trophic_levels=tl)
     current_page = reactive.Value("dashboard")
     last_feedback_submit = reactive.Value(None)  # epoch seconds; rate-limit guard
 
@@ -813,7 +842,7 @@ Network Statistics:
     def functional_groups_legend():
         info = current_species_info()
         unique_groups = sorted(info['fg'].unique())
-        _, color_map = get_functional_group_colors(info['fg'].tolist())
+        _, color_map = colors_cached()
 
         legend_items = []
         for group in unique_groups:
@@ -859,61 +888,21 @@ Network Statistics:
     @output
     @render.ui
     def network_plot():
-        G = current_network()
-        info = current_species_info()
-        height = input.network_height()
-
-        node_colors, _ = get_functional_group_colors(info['fg'].tolist())
-
+        h = f"{input.network_height()}px"
         if input.network_type() == "Topology":
-            net = create_topology_network(
-                G,
-                species_names=info['species'].tolist(),
-                functional_groups=info['fg'].tolist(),
-                biomass=info['meanB'].values,
-                colors=node_colors,
-                height=f"{height}px"
-            )
+            net = _build_network("topology", height=h)
         else:
-            # Flux-weighted network
             if flux_results() is None:
                 return ui.p("Please calculate fluxes first in the Energy Fluxes tab.")
-
-            flux_matrix = flux_results()['flux_matrix']
-            net = create_flux_network(
-                G,
-                species_names=info['species'].tolist(),
-                functional_groups=info['fg'].tolist(),
-                biomass=info['meanB'].values,
-                colors=node_colors,
-                flux_matrix=flux_matrix,
-                height=f"{height}px"
-            )
-
-        return render_network(net, height=f"{height}px", width="100%")
+            net = _build_network("flux", height=h)
+        return render_network(net, height=h, width="100%")
 
     @render.download(filename="econetool_network.html")
     def download_network():
-        G = current_network()
-        info = current_species_info()
-        node_colors, _ = get_functional_group_colors(info['fg'].tolist())
         if input.network_type() == "Flux-Weighted" and flux_results() is not None:
-            net = create_flux_network(
-                G,
-                species_names=info['species'].tolist(),
-                functional_groups=info['fg'].tolist(),
-                biomass=info['meanB'].values,
-                colors=node_colors,
-                flux_matrix=flux_results()['flux_matrix'],
-            )
+            net = _build_network("flux")
         else:
-            net = create_topology_network(
-                G,
-                species_names=info['species'].tolist(),
-                functional_groups=info['fg'].tolist(),
-                biomass=info['meanB'].values,
-                colors=node_colors,
-            )
+            net = _build_network("topology")
         yield net.generate_html()
 
     @output
@@ -950,7 +939,7 @@ Network Statistics:
     @render.text
     def topological_indicators():
         G = current_network()
-        indicators = get_topological_indicators(G)
+        indicators = get_topological_indicators(G, trophic_levels=trophic_levels_cached())
 
         return f"""
 Topological Network Indicators:
@@ -1004,7 +993,7 @@ Topological Network Indicators:
         G = current_network()
         info = current_species_info()
 
-        indicators = get_node_weighted_indicators(G, info['meanB'].values)
+        indicators = get_node_weighted_indicators(G, info['meanB'].values, trophic_levels=trophic_levels_cached())
 
         return f"""
 Node-Weighted Network Indicators:
@@ -1019,7 +1008,7 @@ Node-Weighted Network Indicators:
     @render.plot
     def biomass_by_group():
         info = current_species_info()
-        _, color_map = get_functional_group_colors(info["fg"].tolist())
+        _, color_map = colors_cached()
 
         fig, ax = plt.subplots(figsize=(8, 6))
 
@@ -1042,7 +1031,7 @@ Node-Weighted Network Indicators:
     @render.plot
     def biomass_distribution():
         info = current_species_info()
-        _, color_map = get_functional_group_colors(info["fg"].tolist())
+        _, color_map = colors_cached()
 
         fig, ax = plt.subplots(figsize=(10, 6))
 
@@ -1185,23 +1174,7 @@ Flux-Based Indicators:
     def flux_network_plot():
         if flux_results() is None:
             return ui.p("Click 'Calculate Fluxes' in the sidebar to generate the flux-weighted network.")
-
-        G = current_network()
-        info = current_species_info()
-        flux_matrix = flux_results()['flux_matrix']
-
-        node_colors, _ = get_functional_group_colors(info['fg'].tolist())
-
-        net = create_flux_network(
-            G,
-            species_names=info['species'].tolist(),
-            functional_groups=info['fg'].tolist(),
-            biomass=info['meanB'].values,
-            colors=node_colors,
-            flux_matrix=flux_matrix,
-            height="600px"
-        )
-
+        net = _build_network("flux", height="600px")
         return render_network(net, height="600px", width="100%")
 
     # ========================================================================
