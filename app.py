@@ -169,14 +169,6 @@ dashboard_ui = lambda: ui.layout_sidebar(
             ui.hr(),
             ui.h5("Functional Groups"),
             ui.output_ui("functional_groups_legend"),
-            ui.hr(),
-            ui.h5("Analysis Options"),
-            ui.input_radio_buttons(
-                "tl_method",
-                "Trophic level method",
-                {"prey_averaged": "Prey-averaged", "short_weighted": "Short-weighted (W&M 2004)"},
-                selected="prey_averaged",
-            ),
             width=300
         ),
         ui.card(
@@ -539,6 +531,13 @@ app_ui = ui.page_fluid(
             ),
             ui.div(
                 {"class": "top-bar-right"},
+                ui.input_select(
+                    "tl_method",
+                    "Trophic level",
+                    {"prey_averaged": "Prey-averaged", "short_weighted": "Short-weighted (W&M 2004)"},
+                    selected="prey_averaged",
+                    width="200px",
+                ),
                 ui.output_ui("top_bar_info")
             )
         ),
