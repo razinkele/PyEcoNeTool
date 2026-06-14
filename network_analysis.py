@@ -173,7 +173,8 @@ def get_topological_indicators(G: nx.DiGraph) -> Dict[str, float]:
             largest_cc = max(nx.weakly_connected_components(G), key=len)
             subG = G.subgraph(largest_cc).to_undirected()
             ShortPath = nx.average_shortest_path_length(subG)
-    except:
+    except (nx.NetworkXError, nx.NetworkXPointlessConcept, ValueError):
+        warnings.warn("Mean shortest path undefined; returning NaN")
         ShortPath = np.nan
 
     # Trophic levels

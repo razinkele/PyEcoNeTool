@@ -557,6 +557,37 @@ def test_keystoneness_ranking_invariant_to_log_base(n, seed):
     assert np.all(np.diff(finite) <= 1e-9), finite  # df is returned sorted desc
 
 
+def test_shortpath_narrowed_except_warns_not_swallows(monkeypatch):
+    """The ShortPath except must catch NetworkX errors and warn (not silently
+    swallow everything). Force average_shortest_path_length to raise a NetworkX
+    error and assert ShortPath becomes NaN with a warning."""
+    import warnings as _w
+    G = nx.DiGraph()
+    G.add_edges_from([('A', 'B'), ('B', 'C')])
+    monkeypatch.setattr(nx, "average_shortest_path_length",
+                        lambda *a, **k: (_ for _ in ()).throw(nx.NetworkXError("boom")))
+    with _w.catch_warnings(record=True) as caught:
+        _w.simplefilter("always")
+        ind = get_topological_indicators(G)
+    assert np.isnan(ind['ShortPath']), ind
+    assert any("shortest path" in str(x.message).lower() for x in caught), \
+        [str(x.message) for x in caught]
+
+
+def test_shortpath_single_node_is_zero_no_warning():
+    """A single-node DiGraph is weakly connected: ShortPath == 0, and the
+    'Mean shortest path undefined' warning does NOT fire (verified nx 3.6.1)."""
+    import warnings as _w
+    G = nx.DiGraph()
+    G.add_node('A')
+    with _w.catch_warnings(record=True) as caught:
+        _w.simplefilter("always")
+        ind = get_topological_indicators(G)
+    assert ind['ShortPath'] == 0
+    assert not any("shortest path" in str(x.message).lower() for x in caught), \
+        [str(x.message) for x in caught]
+
+
 if __name__ == "__main__":
     # Run tests with pytest
     pytest.main([__file__, '-v', '--tb=short'])
