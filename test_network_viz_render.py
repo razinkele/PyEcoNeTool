@@ -179,3 +179,30 @@ def test_topology_node_size_and_y_position_pinned(viz_graph):
     assert np.isclose(by_label['Sprat']['y'], 0.0)
     assert np.isclose(by_label['Herring']['y'], 50.0)
     assert np.isclose(by_label['Cod']['y'], 100.0)
+
+
+def test_topology_builder_nan_tl_safe(viz_graph):
+    """A NaN TL must not flatten the web: finite nodes still spread 0..100, the
+    NaN node sits at the -15 sentinel (outside [0,100]), no y is NaN."""
+    import numpy as np
+    from network_viz import create_topology_network
+    G, species, groups, biomass, colors = viz_graph        # 3 nodes A->B->C
+    tl = np.array([1.0, np.nan, 3.0])
+    net = create_topology_network(G, species, groups, biomass, colors, trophic_levels=tl)
+    ys = [n['y'] for n in net.nodes]
+    assert all(np.isfinite(y) for y in ys), ys
+    assert any(abs(y - (-15.0)) < 1e-9 for y in ys), ys      # NaN node at sentinel
+    finite_ys = [y for y in ys if abs(y - (-15.0)) > 1e-9]
+    assert max(finite_ys) - min(finite_ys) > 0, finite_ys     # finite nodes spread
+
+
+def test_topology_builder_accepts_passed_tl(viz_graph):
+    """Passing trophic_levels must drive y; a sentinel TL shifts positions."""
+    import numpy as np
+    from network_viz import create_topology_network
+    G, species, groups, biomass, colors = viz_graph
+    net = create_topology_network(G, species, groups, biomass, colors,
+                                  trophic_levels=np.array([1.0, 2.0, 3.0]))
+    by_label = {n['label']: n for n in net.nodes}
+    assert np.isclose(by_label['Sprat']['y'], 0.0)
+    assert np.isclose(by_label['Cod']['y'], 100.0)

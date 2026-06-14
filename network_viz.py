@@ -78,7 +78,8 @@ def create_topology_network(
     biomass: np.ndarray,
     colors: List[str],
     width: str = "100%",
-    height: str = "600px"
+    height: str = "600px",
+    trophic_levels: np.ndarray = None
 ) -> Network:
     """
     Create an interactive topology network visualization using PyVis.
@@ -99,7 +100,8 @@ def create_topology_network(
         PyVis Network object
     """
     # Calculate trophic levels for Y positioning
-    trophic_levels = calculate_trophic_levels(G)
+    if trophic_levels is None:
+        trophic_levels = calculate_trophic_levels(G)
 
     # Create PyVis network
     net = Network(
@@ -114,16 +116,26 @@ def create_topology_network(
     # Configure physics for Barnes-Hut layout (similar to R visNetwork)
     net.set_options(_physics_options(arrow_scale=0.5, edge_scale_min=1, edge_scale_max=1))
 
-    # Normalize Y positions based on trophic levels
-    min_tl = np.min(trophic_levels)
-    max_tl = np.max(trophic_levels)
-    y_positions = 100 * (trophic_levels - min_tl) / (max_tl - min_tl) if max_tl > min_tl else np.zeros(len(trophic_levels))
+    # Normalize Y positions by trophic level (NaN-safe: short-weighted TL may be
+    # NaN for basal-unreachable cycle nodes; park those at a -15 sentinel below
+    # the [0,100] band so they don't collapse onto real min-TL nodes at y=0).
+    finite_tl = np.isfinite(trophic_levels)
+    NAN_TL_Y = -15.0
+    y_positions = np.full(len(trophic_levels), NAN_TL_Y, dtype=float)
+    if finite_tl.any():
+        min_tl = np.nanmin(trophic_levels)
+        max_tl = np.nanmax(trophic_levels)
+        if max_tl > min_tl:
+            y_positions[finite_tl] = 100 * (trophic_levels[finite_tl] - min_tl) / (max_tl - min_tl)
+        else:
+            y_positions[finite_tl] = 0.0
 
     # Add nodes
     nodes = list(G.nodes())
     for i, node in enumerate(nodes):
         # Create tooltip with species information (single line HTML for PyVis)
-        title = f"<b>{species_names[i]}</b><br>Functional Group: {functional_groups[i]}<br>Trophic Level: {trophic_levels[i]:.2f}<br>Biomass: {biomass[i]:.2f} g/km²/day"
+        tl_str = f"{trophic_levels[i]:.2f}" if np.isfinite(trophic_levels[i]) else "n/a"
+        title = f"<b>{species_names[i]}</b><br>Functional Group: {functional_groups[i]}<br>Trophic Level: {tl_str}<br>Biomass: {biomass[i]:.2f} g/km²/day"
 
         # Calculate node size based on biomass
         node_size = NODE_SIZE_MIN + (biomass[i] / np.max(biomass) * NODE_SIZE_SCALE) if np.max(biomass) > 0 else NODE_SIZE_MIN
@@ -162,7 +174,8 @@ def create_flux_network(
     colors: List[str],
     flux_matrix: np.ndarray,
     width: str = "100%",
-    height: str = "600px"
+    height: str = "600px",
+    trophic_levels: np.ndarray = None
 ) -> Network:
     """
     Create an interactive flux-weighted network visualization using PyVis.
@@ -183,7 +196,8 @@ def create_flux_network(
         PyVis Network object
     """
     # Calculate trophic levels for Y positioning
-    trophic_levels = calculate_trophic_levels(G)
+    if trophic_levels is None:
+        trophic_levels = calculate_trophic_levels(G)
 
     # Create weighted graph from flux matrix
     G_weighted = nx.DiGraph()
@@ -209,15 +223,25 @@ def create_flux_network(
     # Configure physics (same as topology network)
     net.set_options(_physics_options(arrow_scale=0.3, edge_scale_min=0.1, edge_scale_max=15))
 
-    # Normalize Y positions based on trophic levels
-    min_tl = np.min(trophic_levels)
-    max_tl = np.max(trophic_levels)
-    y_positions = 100 * (trophic_levels - min_tl) / (max_tl - min_tl) if max_tl > min_tl else np.zeros(len(trophic_levels))
+    # Normalize Y positions by trophic level (NaN-safe: short-weighted TL may be
+    # NaN for basal-unreachable cycle nodes; park those at a -15 sentinel below
+    # the [0,100] band so they don't collapse onto real min-TL nodes at y=0).
+    finite_tl = np.isfinite(trophic_levels)
+    NAN_TL_Y = -15.0
+    y_positions = np.full(len(trophic_levels), NAN_TL_Y, dtype=float)
+    if finite_tl.any():
+        min_tl = np.nanmin(trophic_levels)
+        max_tl = np.nanmax(trophic_levels)
+        if max_tl > min_tl:
+            y_positions[finite_tl] = 100 * (trophic_levels[finite_tl] - min_tl) / (max_tl - min_tl)
+        else:
+            y_positions[finite_tl] = 0.0
 
     # Add nodes
     for i, node in enumerate(nodes):
         # Create tooltip (single line HTML for PyVis)
-        title = f"<b>{species_names[i]}</b><br>Functional Group: {functional_groups[i]}<br>Trophic Level: {trophic_levels[i]:.2f}<br>Biomass: {biomass[i]:.2f} g/km²/day"
+        tl_str = f"{trophic_levels[i]:.2f}" if np.isfinite(trophic_levels[i]) else "n/a"
+        title = f"<b>{species_names[i]}</b><br>Functional Group: {functional_groups[i]}<br>Trophic Level: {tl_str}<br>Biomass: {biomass[i]:.2f} g/km²/day"
 
         # Calculate node size based on biomass
         node_size = NODE_SIZE_MIN + (biomass[i] / np.max(biomass) * NODE_SIZE_SCALE) if np.max(biomass) > 0 else NODE_SIZE_MIN
