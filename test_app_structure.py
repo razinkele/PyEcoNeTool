@@ -88,3 +88,17 @@ def test_safe_render_below_render_text_order():
     def raw_boom():
         raise RuntimeError("x")
     assert "could not be computed" in raw_boom().lower()
+
+
+def test_tl_method_is_single_topbar_select():
+    """The trophic-level method control lives once, in the persistent top bar,
+    as a <select> dropdown — not in the dashboard sidebar, and not duplicated."""
+    import re
+    app = importlib.import_module("app")
+    shell = str(app.app_ui)
+    # Exactly one tl_method input, in the always-rendered app shell.
+    assert shell.count('id="tl_method"') == 1, shell.count('id="tl_method"')
+    # It is a dropdown (<select>), not radio buttons.
+    assert re.search(r'<select[^>]*id="tl_method"', shell), "tl_method must be a <select>"
+    # It is NOT left behind in the dashboard sidebar.
+    assert 'id="tl_method"' not in str(app.dashboard_ui()), "tl_method still in dashboard sidebar"
