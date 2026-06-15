@@ -690,6 +690,28 @@ def test_node_weighted_nwTL_masks_nan_tl(simple_linear_chain):
     assert np.isclose(ind['nwTL'], expected), ind['nwTL']
 
 
+def test_flux_indicators_inflow_normalization_multiprey():
+    """A predator eating 2 prey with EQUAL flux has effective prey N_res=2, so
+    lwG reflects 2 effective prey. The transposed normalization divides by the
+    prey's inflow instead of the predator's intake and gets this wrong.
+    Web: prey A,B -> predator C, flux 5 each (rows=prey, cols=pred)."""
+    from network_analysis import calculate_flux_indicators
+    flux = np.array([[0.0, 0.0, 5.0],
+                     [0.0, 0.0, 5.0],
+                     [0.0, 0.0, 0.0]])  # A->C=5, B->C=5
+    ind = calculate_flux_indicators(flux, loop=False)
+    # C's inflow is {A:5, B:5} -> Shannon-effective prey = 2.0; lwV unaffected.
+    assert np.isclose(ind['lwG'], 2.0), ind['lwG']
+
+
+def test_flux_indicators_chain_anchor():
+    """Non-regression anchor: a single-prey chain gives lwG=lwV=1.0 either way."""
+    from network_analysis import calculate_flux_indicators
+    flux = np.array([[0.0, 10.0, 0.0], [0.0, 0.0, 5.0], [0.0, 0.0, 0.0]])
+    ind = calculate_flux_indicators(flux, loop=False)
+    assert np.isclose(ind['lwG'], 1.0) and np.isclose(ind['lwV'], 1.0), ind
+
+
 if __name__ == "__main__":
     # Run tests with pytest
     pytest.main([__file__, '-v', '--tb=short'])

@@ -379,7 +379,8 @@ def calculate_flux_indicators(flux_matrix: np.ndarray, loop: bool = False) -> Di
 
     # Diversity of k species inflows
     with np.errstate(divide='ignore', invalid='ignore'):
-        H_in_mat = (W_net.T / sum_in).T * np.log((W_net.T / sum_in).T)
+        P_in = W_net / sum_in[np.newaxis, :]
+        H_in_mat = P_in * np.log(P_in)
     H_in_mat[~np.isfinite(H_in_mat)] = 0  # Convert NaN to 0's
     H_in = -np.sum(H_in_mat, axis=0)
 
