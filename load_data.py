@@ -50,18 +50,25 @@ def load_baltic_data():
     print("Loading species info from CSV...")
     info = pd.read_csv(info_file)
 
-    # Ensure species names match network nodes
-    # GraphML might have changed node IDs, so we need to map them
-    node_mapping = {str(i): name for i, name in enumerate(info['species'])}
+    # Key the node<->row join by species name. GraphML nodes carry a 'name'
+    # attribute (n0->'Synchaeta', ...); relabel the graph to those names so the
+    # node IDs ARE the species, not positional 'n0..nN' accidents.
+    names = nx.get_node_attributes(G, 'name')
+    if names and len(names) == G.number_of_nodes():
+        if len(set(names.values())) != len(names):
+            raise ValueError("Duplicate species names in GraphML 'name' attrs; "
+                             "cannot key the join by name.")
+        G = nx.relabel_nodes(G, names)
 
-    # Check if we need to relabel nodes
-    if set(G.nodes()) != set(info['species'].values):
-        print("Relabeling nodes to match species names...")
-        if all(str(i) in G.nodes() for i in range(len(info))):
-            # Nodes are numbered, relabel them
-            G = nx.relabel_nodes(G, node_mapping)
-        else:
-            print("Warning: Node labels don't match. Attempting to align...")
+    # Reindex info to the graph's node order, then require an exact match.
+    node_list = list(G.nodes())
+    if set(node_list) == set(info['species']):
+        info = info.set_index('species').loc[node_list].reset_index()
+    if list(G.nodes()) != info['species'].tolist():
+        raise ValueError(
+            "Network nodes do not align with species rows by name "
+            f"(nodes={node_list[:3]}..., species={info['species'].tolist()[:3]}...)."
+        )
 
     # Load metadata if available
     if metadata_file.exists():
@@ -75,7 +82,7 @@ def load_baltic_data():
     required_cols = ['species', 'fg', 'meanB', 'bodymasses', 'met.types', 'efficiencies']
     missing_cols = [col for col in required_cols if col not in info.columns]
     if missing_cols:
-        print(f"\nWarning: Missing required columns: {missing_cols}")
+        raise ValueError(f"Missing required columns: {missing_cols}")
 
     # Verify data integrity
     print(f"\nData Summary:")
