@@ -576,6 +576,36 @@ def test_validate_flux_equilibrium_honors_bioms_losses_flag():
     assert r_true['max_imbalance'] > r_false['max_imbalance'], (r_true, r_false)
 
 
+def test_fluxing_raises_on_nan_biomass():
+    """A NaN biomass yields all-NaN F; np.any(F < -1e-9) is False for NaN, so the
+    negative-F guard misses it. fluxing must reject non-finite inputs/solutions."""
+    mat = np.array([[0, 1, 0], [0, 0, 1], [0, 0, 0]])
+    losses = np.array([0.1, 0.5, 1.0])
+    e = np.array([0.0, 0.6, 0.7])
+    bm = np.array([100.0, np.nan, 25.0])
+    with pytest.raises(ValueError, match="finite"):
+        fluxing(mat=mat, biomasses=bm, losses=losses, efficiencies=e, ef_level="prey")
+
+
+def test_validate_flux_equilibrium_flags_nonfinite():
+    """A non-finite flux must not report balanced=True, max_imbalance=0.0.
+
+    This input pins the guard: a NaN on the diagonal with zero losses. On the
+    pre-guard path, ``inflows > tolerance`` is False for the NaN (so ``checked``
+    is all-False), and with zero losses every ``abs(outflows) > tolerance`` is
+    also False (NaN compares False; the remaining entries are zero), so the
+    validator falls into the ``else`` branch and silently returns
+    balanced=True / max_imbalance=0.0. The non-finite guard must catch it.
+    (The earlier off-diagonal-NaN + nonzero-losses input was vacuous: it
+    returns balanced=False / max_imbalance=nan with OR without the guard.)
+    """
+    flux = np.array([[np.nan, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]])
+    losses = np.array([0.0, 0.0, 0.0]); e = np.array([0.5, 0.5, 0.5])
+    r = validate_flux_equilibrium(flux, losses, e)
+    assert r['balanced'] is False, r
+    assert not np.isfinite(r['max_imbalance']), r
+
+
 if __name__ == "__main__":
     # Run tests with pytest
     pytest.main([__file__, '-v', '--tb=short'])

@@ -98,6 +98,10 @@ def fluxing(
     else:
         raise ValueError(f"ef_level must be 'prey', 'pred', or 'link', got '{ef_level}'")
 
+    for _name, _arr in (("biomasses", biomasses), ("losses", losses), ("efficiencies", efficiencies)):
+        if _arr is not None and not np.all(np.isfinite(np.asarray(_arr, dtype=float))):
+            raise ValueError(f"fluxing: {_name} contains non-finite values.")
+
     # Calculate preference matrix W
     # W[i,j] represents predator j's preference for prey i
     W = mat.copy().astype(float)
@@ -177,6 +181,13 @@ def fluxing(
     # Infeasible system: a negative ingestion has no biological meaning. fluxweb-R
     # (Gauzens et al. 2019) raises here rather than silently clipping, because a
     # clipped all-zero matrix is indistinguishable from a real equilibrium.
+    # Reject non-finite first (np.any(F < -1e-9) is False for NaN, so the
+    # negative check alone would silently pass an all-NaN solution).
+    if not np.all(np.isfinite(F)):
+        raise ValueError(
+            "fluxing: non-finite flux solution (check for NaN/inf biomass, "
+            "losses, or efficiencies)."
+        )
     if np.any(F < -1e-9):
         raise ValueError(
             "fluxing: no non-negative steady-state solution exists for these "
@@ -267,6 +278,15 @@ def validate_flux_equilibrium(
             'imbalances': Vector of imbalances for each species
             'max_imbalance': Maximum absolute imbalance
     """
+    if not np.all(np.isfinite(flux_matrix)):
+        return {
+            'balanced': False,
+            'imbalances': np.full(flux_matrix.shape[0], np.nan),
+            'max_imbalance': np.inf,
+            'mean_imbalance': np.inf,
+            'relative_imbalance': np.inf,
+        }
+
     # Prey-level steady state: assimilated incoming flux to consumer i equals
     # its outflow to predators plus losses.
     #   assimilated_in_i = sum_k e_k * flux[k,i]  =  (flux.T @ e)_i
