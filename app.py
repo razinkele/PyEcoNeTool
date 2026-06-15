@@ -101,7 +101,16 @@ def load_default_data():
         # an external/untrusted source, so pickle.load here is safe.
         with open(data_file, 'rb') as f:
             data = pickle.load(f)
-        return data['network'], data['info']
+        if not (isinstance(data, dict) and {'network', 'info'} <= set(data.keys())):
+            print("BalticFW.pkl missing 'network'/'info'; rebuilding from sources.")
+        else:
+            G_pkl, info_pkl = data['network'], data['info']
+            required = ['species', 'fg', 'meanB', 'bodymasses', 'met.types', 'efficiencies']
+            if (all(c in info_pkl.columns for c in required)
+                    and set(info_pkl['species']) == set(G_pkl.nodes())):
+                return G_pkl, info_pkl
+            print("BalticFW.pkl stale/misaligned; rebuilding from sources.")
+        # fall through to reconstruction
 
     # No pickle cache — reconstruct from the tracked GraphML/CSV/JSON sources.
     try:
@@ -952,7 +961,7 @@ Network Statistics:
         G = current_network()
         info = current_species_info()
 
-        adj_matrix = nx.to_numpy_array(G)
+        adj_matrix = nx.to_numpy_array(G, nodelist=info['species'].tolist())
         labels = info['species'].tolist()
 
         fig, ax = plt.subplots(figsize=(10, 8))
@@ -1116,7 +1125,7 @@ Node-Weighted Network Indicators:
         )
 
         # Get adjacency matrix (rows=prey, cols=predators)
-        adj_matrix = nx.to_numpy_array(G)
+        adj_matrix = nx.to_numpy_array(G, nodelist=info['species'].tolist())
         biomass = info['meanB'].values
         efficiencies = info['efficiencies'].values
 

@@ -26,3 +26,12 @@ def test_load_baltic_data_raises_on_name_mismatch(tmp_path, monkeypatch):
     from load_data import load_baltic_data
     with pytest.raises(ValueError, match="match|align"):
         load_baltic_data()
+
+
+def test_load_default_data_pickle_is_name_keyed():
+    """The on-disk pickle path must yield name-keyed nodes (catches a stale pkl)."""
+    if not Path("BalticFW_network.graphml").exists():
+        pytest.skip("source not present")
+    import app
+    G, info = app.load_default_data()
+    assert list(G.nodes()) == info['species'].tolist()
