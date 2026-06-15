@@ -217,8 +217,9 @@ def get_topological_indicators(G: nx.DiGraph, trophic_levels: np.ndarray = None)
     TL = np.nanmean(tlnodes)
 
     # Omnivory index (Christensen & Pauly 1992): diet-fraction-weighted variance
-    # of prey trophic levels, centered on (TL_i - 1) = the diet-weighted mean
-    # prey TL. OI_i = sum_j DC[j,i] * (TL_j - (TL_i - 1))**2.  No sqrt, no Bessel
+    # of prey trophic levels, centered on the diet-weighted mean prey TL =
+    # sum_j DC[j,i]*TL_j (equals TL_i-1 only for prey-averaged TL).
+    # OI_i = sum_j DC[j,i] * (TL_j - center)**2.  No sqrt, no Bessel
     # correction. Single-prey predators -> 0; basal (no prey) -> NaN (undefined,
     # excluded from the system mean). Diet fractions are the column-normalized
     # adjacency, identical to the matrix used by the trophic-level solve.
@@ -229,8 +230,14 @@ def get_topological_indicators(G: nx.DiGraph, trophic_levels: np.ndarray = None)
     omninodes = np.full(len(col_sums), np.nan)
     for i in range(len(col_sums)):
         if col_sums[i] > 0:
-            center = tlnodes[i] - 1.0
-            omninodes[i] = float(np.sum(DC[:, i] * (tlnodes - center) ** 2))
+            w = DC[:, i].copy()
+            finite = np.isfinite(tlnodes) & (w > 0)
+            if not finite.any():
+                continue  # no finite-TL prey -> undefined (NaN)
+            w = w[finite] / w[finite].sum()      # renormalize over finite prey
+            tlf = tlnodes[finite]
+            center = float(np.sum(w * tlf))       # diet-weighted mean prey TL
+            omninodes[i] = float(np.sum(w * (tlf - center) ** 2))
     Omni = float(np.nanmean(omninodes)) if np.any(np.isfinite(omninodes)) else 0.0
 
     return {

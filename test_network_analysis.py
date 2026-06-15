@@ -265,6 +265,30 @@ def test_omnivory_pauly_pinned(simple_omnivory):
     assert np.isclose(ind['Omni'], 0.125), ind['Omni']
 
 
+def test_omnivory_center_is_method_invariant(simple_omnivory):
+    """Omnivory centers on the diet-weighted mean prey TL, which is independent
+    of the TL *method* for omnivore_web (prey TLs unchanged). Both methods -> 0.125.
+    The buggy center=TL_i-1 gives 0.15625 under short_weighted."""
+    G, _ = simple_omnivory
+    for method in ("prey_averaged", "short_weighted"):
+        tl = calculate_trophic_levels(G, method=method)
+        ind = get_topological_indicators(G, trophic_levels=tl)
+        assert np.isclose(ind['Omni'], 0.125), (method, ind['Omni'])
+
+
+def test_omnivory_nan_prey_renormalizes():
+    """A predator eating >=2 finite-TL prey plus one NaN-TL prey renormalizes
+    over the finite prey (not poisoned to NaN)."""
+    G = nx.DiGraph()
+    G.add_nodes_from(['A', 'B', 'X', 'C'])
+    G.add_edges_from([('A', 'C'), ('B', 'C'), ('X', 'C')])  # C eats A,B,X
+    tl = np.array([1.0, 2.0, np.nan, 3.0])  # X has NaN TL
+    ind = get_topological_indicators(G, trophic_levels=tl)
+    # finite prey of C: A(1),B(2) renormalized to 0.5/0.5; center=1.5;
+    # OI_C = 0.5*(1-1.5)^2 + 0.5*(2-1.5)^2 = 0.25; basal A,B,X -> NaN; mean = 0.25
+    assert np.isclose(ind['Omni'], 0.25), ind['Omni']
+
+
 def test_topological_indicators_empty_network():
     """Test handling of edge cases"""
     G = nx.DiGraph()
