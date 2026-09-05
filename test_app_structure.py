@@ -181,3 +181,39 @@ def test_pages_registry_maps_keys_to_menu_ids_and_builders():
 
     # named module attributes preserved (a downstream test calls app.dashboard_ui())
     assert app.dashboard_ui() is not None
+
+
+def test_assert_aligned_raises_on_node_row_mismatch():
+    """_assert_aligned must raise ValueError when node order and species-row
+    order have diverged (the exact contract load_default_data's three return
+    paths and the editor apply handler depend on)."""
+    import networkx as nx
+    import pandas as pd
+    import pytest
+    app = importlib.import_module("app")
+    G = nx.DiGraph()
+    G.add_node('Cod'); G.add_node('Sprat')
+    info = pd.DataFrame({'species': ['Sprat', 'Cod'], 'fg': ['Fish', 'Fish']})
+    with pytest.raises(ValueError, match="misalign|align"):
+        app._assert_aligned(G, info)
+
+
+def test_load_default_data_raises_on_pickle_bypassing_misaligned_reconstruction(tmp_path, monkeypatch):
+    """If load_baltic_data's own reindex/raise contract were ever bypassed
+    (e.g. a future refactor returns misaligned data directly), _assert_aligned
+    inside load_default_data must still catch it rather than returning
+    misaligned data silently."""
+    app = importlib.import_module("app")
+    monkeypatch.setattr(app, 'DATA_DIR', tmp_path)  # no BalticFW.pkl here
+
+    import networkx as nx
+    import pandas as pd
+    import pytest
+    bad_g = nx.DiGraph(); bad_g.add_node('Cod'); bad_g.add_node('Sprat')
+    bad_info = pd.DataFrame({'species': ['Sprat', 'Cod'], 'fg': ['Fish', 'Fish'],
+                             'meanB': [1.0, 2.0], 'bodymasses': [1.0, 2.0],
+                             'met.types': ['Other', 'Other'], 'efficiencies': [0.5, 0.5]})
+    monkeypatch.setattr('load_data.load_baltic_data', lambda base_dir=None: (bad_g, bad_info))
+
+    with pytest.raises(ValueError, match="misalign|align"):
+        app.load_default_data()

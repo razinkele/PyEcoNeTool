@@ -91,6 +91,19 @@ def safe_render(kind):
 DATA_DIR = Path(__file__).parent
 
 
+def _assert_aligned(G, info):
+    """Raise ValueError if the network's node order and species_info's row
+    order have diverged. Called on every load_default_data() return path and
+    before current_species_info.set(df) in the editor apply handler."""
+    nodes = list(G.nodes())
+    species = info['species'].tolist()
+    if nodes != species:
+        raise ValueError(
+            "Network nodes and species_info rows are misaligned: "
+            f"nodes={nodes[:3]}..., species={species[:3]}..."
+        )
+
+
 def load_default_data():
     """Load the default Baltic Food Web data.
 
@@ -120,6 +133,7 @@ def load_default_data():
             required = ['species', 'fg', 'meanB', 'bodymasses', 'met.types', 'efficiencies']
             if (all(c in info_pkl.columns for c in required)
                     and info_pkl['species'].tolist() == list(G_pkl.nodes())):
+                _assert_aligned(G_pkl, info_pkl)
                 return G_pkl, info_pkl
             print("BalticFW.pkl stale/misaligned; rebuilding from sources.")
         # fall through to reconstruction
@@ -127,10 +141,14 @@ def load_default_data():
     # No pickle cache — reconstruct from the tracked GraphML/CSV/JSON sources.
     try:
         from load_data import load_baltic_data
-        return load_baltic_data(base_dir=DATA_DIR)
+        G, info = load_baltic_data(base_dir=DATA_DIR)
+        _assert_aligned(G, info)
+        return G, info
     except (FileNotFoundError, ImportError) as exc:
         print(f"Baltic sources unavailable ({exc}); using example network.")
-        return create_example_network()
+        G, info = create_example_network()
+        _assert_aligned(G, info)
+        return G, info
 
 
 def create_example_network():
