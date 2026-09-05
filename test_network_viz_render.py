@@ -22,6 +22,8 @@ browser, not what generate_html() produces.
 To run: pytest test_network_viz_render.py -v
 """
 
+import re
+
 import pytest
 import networkx as nx
 import numpy as np
@@ -255,5 +257,17 @@ def test_download_network_html_has_no_local_asset_references(simple_test_network
     html = app._network_download_html(net)
 
     assert 'src="lib/' not in html, "download HTML references local lib/ assets"
+    # Absence of src="lib/" alone would also pass for a helper that merely
+    # stripped the references without inlining a replacement (or that
+    # returned truncated/empty output). Assert the inlined library content
+    # is actually present and substantial, not just that the local
+    # reference is gone.
+    assert "vis-network" in html and "https://visjs.github.io/vis-network/" in html, \
+        "download HTML must embed the vis-network library banner inline"
+    assert "div.vis-network div.vis-manipulation" in html, \
+        "download HTML must embed the vis-network CSS inline"
+    scripts = re.findall(r"<script[^>]*>([\s\S]*?)</script>", html)
+    assert any(len(s) > 100_000 for s in scripts), \
+        "download HTML must embed the full (non-truncated) vis-network JS inline"
     assert net.cdn_resources == CDN_LOCAL, \
         "helper must not mutate the caller's network in place"
