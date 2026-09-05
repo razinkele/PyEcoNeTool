@@ -112,7 +112,7 @@ def load_default_data():
             G_pkl, info_pkl = data['network'], data['info']
             required = ['species', 'fg', 'meanB', 'bodymasses', 'met.types', 'efficiencies']
             if (all(c in info_pkl.columns for c in required)
-                    and set(info_pkl['species']) == set(G_pkl.nodes())):
+                    and info_pkl['species'].tolist() == list(G_pkl.nodes())):
                 return G_pkl, info_pkl
             print("BalticFW.pkl stale/misaligned; rebuilding from sources.")
         # fall through to reconstruction

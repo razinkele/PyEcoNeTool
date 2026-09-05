@@ -67,15 +67,20 @@ pip install -r requirements.txt
 ### Required Python Packages
 
 - shiny>=1.0.0
+- htmltools>=0.5.0
+- shinyswatch>=0.4.0
+- shinywidgets>=0.3.0
 - networkx>=3.0
 - pyvis @ git+https://github.com/razinkele/pyvis.git@v4.2
 - pandas>=2.0.0
-- numpy>=1.24.0
+- numpy>=2.0.0
 - scipy>=1.10.0
+- great-tables>=0.1.0
+- openpyxl>=3.1.0
+- xlrd>=2.0.0
 - matplotlib>=3.7.0
 - seaborn>=0.12.0
 - plotly>=5.14.0
-- shinyswatch>=0.4.0
 
 ## 📖 Data Format
 

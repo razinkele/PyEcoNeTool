@@ -59,6 +59,13 @@ if [[ "$CURRENT_HOSTNAME" == "laguna" ]] || [[ "$CURRENT_HOSTNAME" == "laguna.ku
 fi
 
 # Files to deploy
+#
+# NOTE: This curated list is used ONLY for pre-flight verification (that these
+# files exist locally before deploying) and for post-deploy listing/logging —
+# it does NOT gate what actually ships. The rsync step below mirrors the
+# working tree wholesale (./), filtered only by EXCLUDE_PATTERNS, so any
+# tracked file not excluded is transferred regardless of whether it appears
+# in FILES.
 FILES=(
   "app.py"
   "network_analysis.py"
