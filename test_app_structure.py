@@ -416,3 +416,19 @@ def test_flux_indicators_panel_reports_balance_status():
     just the lwC/lwG/lwV numbers."""
     src = APP.read_text(encoding="utf-8")
     assert "Equilibrium:" in src
+
+
+def test_editor_apply_clears_flux_results_before_updating_info():
+    """A12: flux_results must be cleared before current_species_info is updated, so a
+    flux panel already rendered can't display a pre-edit flux matrix against
+    post-edit species labels/order."""
+    src = APP.read_text(encoding="utf-8")
+    tree = ast.parse(src)
+    fn = next(n for n in ast.walk(tree)
+              if isinstance(n, ast.FunctionDef) and n.name == "_apply_species_info_edits")
+    body = ast.get_source_segment(src, fn)
+    assert body is not None
+    assert "flux_results.set(None)" in body, \
+        "editor apply handler must clear flux_results"
+    assert body.index("flux_results.set(None)") < body.index("current_species_info.set(df)"), \
+        "flux_results must be cleared BEFORE current_species_info is updated"

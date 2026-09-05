@@ -1502,6 +1502,7 @@ Keystoneness Analysis Summary:
         except ValueError as exc:
             ui.notification_show(f"Cannot apply edits: {exc}", type="error", duration=6)
             return
+        flux_results.set(None)
         current_species_info.set(df)
         ui.notification_show("Species info updated.", type="message", duration=4)
 
