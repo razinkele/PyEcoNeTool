@@ -181,6 +181,28 @@ def test_topology_node_size_and_y_position_pinned(viz_graph):
     assert np.isclose(by_label['Cod']['y'], 100.0)
 
 
+def test_flux_node_size_and_y_position_pinned(viz_graph):
+    """Pin node size and TL->y normalization for create_flux_network, mirroring
+    test_topology_node_size_and_y_position_pinned. Same biomass/TL inputs must
+    produce byte-identical sizes/y positions across both builders:
+      sizes = [29.0, 16.5, 10.25]; y = [0, 50, 100]."""
+    from network_viz import create_flux_network
+    G, species, groups, biomass, colors = viz_graph
+    flux_matrix = np.array([
+        [0.0, 10.0, 0.0],
+        [0.0, 0.0, 5.0],
+        [0.0, 0.0, 0.0],
+    ])
+    net = create_flux_network(G, species, groups, biomass, colors, flux_matrix)
+    by_label = {n['label']: n for n in net.nodes}
+    assert np.isclose(by_label['Sprat']['size'], 29.0)
+    assert np.isclose(by_label['Herring']['size'], 16.5)
+    assert np.isclose(by_label['Cod']['size'], 10.25)
+    assert np.isclose(by_label['Sprat']['y'], 0.0)
+    assert np.isclose(by_label['Herring']['y'], 50.0)
+    assert np.isclose(by_label['Cod']['y'], 100.0)
+
+
 def test_topology_builder_nan_tl_safe(viz_graph):
     """A NaN TL must not flatten the web: finite nodes still spread 0..100, the
     NaN node sits at the -15 sentinel (outside [0,100]), no y is NaN."""

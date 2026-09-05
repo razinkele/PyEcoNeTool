@@ -20,6 +20,66 @@ from network_analysis import (
 )
 
 
+# NaN-safe y-position sentinel: short-weighted TL may be NaN for
+# basal-unreachable cycle nodes; park those below the [0,100] band so
+# they don't collapse onto real min-TL nodes at y=0.
+NAN_TL_Y = -15.0
+
+
+def _add_styled_nodes(
+    net: Network,
+    G: nx.DiGraph,
+    species_names: List[str],
+    functional_groups: List[str],
+    biomass: np.ndarray,
+    colors: List[str],
+    trophic_levels: np.ndarray,
+) -> List:
+    """Compute NaN-safe y-positions from trophic_levels and add styled nodes
+    (sized by biomass, colored/grouped by functional group, positioned by
+    trophic level) to `net`. Shared by create_topology_network and
+    create_flux_network so both builders emit identical node styling.
+
+    Returns the list of G's nodes (in iteration order), which the flux
+    builder reuses to build its weighted edge graph.
+    """
+    # Normalize Y positions by trophic level (NaN-safe; see NAN_TL_Y above).
+    finite_tl = np.isfinite(trophic_levels)
+    y_positions = np.full(len(trophic_levels), NAN_TL_Y, dtype=float)
+    if finite_tl.any():
+        min_tl = np.nanmin(trophic_levels)
+        max_tl = np.nanmax(trophic_levels)
+        if max_tl > min_tl:
+            y_positions[finite_tl] = 100 * (trophic_levels[finite_tl] - min_tl) / (max_tl - min_tl)
+        else:
+            y_positions[finite_tl] = 0.0
+
+    # Add nodes
+    nodes = list(G.nodes())
+    for i, node in enumerate(nodes):
+        # Create tooltip with species information (single line HTML for PyVis)
+        tl_str = f"{trophic_levels[i]:.2f}" if np.isfinite(trophic_levels[i]) else "n/a"
+        title = f"<b>{species_names[i]}</b><br>Functional Group: {functional_groups[i]}<br>Trophic Level: {tl_str}<br>Biomass: {biomass[i]:.2f} g/km²/day"
+
+        # Calculate node size based on biomass
+        node_size = NODE_SIZE_MIN + (biomass[i] / np.max(biomass) * NODE_SIZE_SCALE) if np.max(biomass) > 0 else NODE_SIZE_MIN
+
+        net.add_node(
+            node,
+            label=species_names[i],
+            title=title,
+            color=colors[i],
+            size=node_size,
+            x=None,  # Let physics determine X position
+            y=y_positions[i],
+            physics=True,
+            shape="dot",
+            group=functional_groups[i]
+        )
+
+    return nodes
+
+
 def _physics_options(arrow_scale: float, edge_scale_min: float, edge_scale_max: float) -> str:
     """Return the shared Barnes-Hut physics options JSON for a pyvis Network,
     parameterized by the two fields that differ between the topology and flux
@@ -117,42 +177,7 @@ def create_topology_network(
     # Configure physics for Barnes-Hut layout (similar to R visNetwork)
     net.set_options(_physics_options(arrow_scale=0.5, edge_scale_min=1, edge_scale_max=1))
 
-    # Normalize Y positions by trophic level (NaN-safe: short-weighted TL may be
-    # NaN for basal-unreachable cycle nodes; park those at a -15 sentinel below
-    # the [0,100] band so they don't collapse onto real min-TL nodes at y=0).
-    finite_tl = np.isfinite(trophic_levels)
-    NAN_TL_Y = -15.0
-    y_positions = np.full(len(trophic_levels), NAN_TL_Y, dtype=float)
-    if finite_tl.any():
-        min_tl = np.nanmin(trophic_levels)
-        max_tl = np.nanmax(trophic_levels)
-        if max_tl > min_tl:
-            y_positions[finite_tl] = 100 * (trophic_levels[finite_tl] - min_tl) / (max_tl - min_tl)
-        else:
-            y_positions[finite_tl] = 0.0
-
-    # Add nodes
-    nodes = list(G.nodes())
-    for i, node in enumerate(nodes):
-        # Create tooltip with species information (single line HTML for PyVis)
-        tl_str = f"{trophic_levels[i]:.2f}" if np.isfinite(trophic_levels[i]) else "n/a"
-        title = f"<b>{species_names[i]}</b><br>Functional Group: {functional_groups[i]}<br>Trophic Level: {tl_str}<br>Biomass: {biomass[i]:.2f} g/km²/day"
-
-        # Calculate node size based on biomass
-        node_size = NODE_SIZE_MIN + (biomass[i] / np.max(biomass) * NODE_SIZE_SCALE) if np.max(biomass) > 0 else NODE_SIZE_MIN
-
-        net.add_node(
-            node,
-            label=species_names[i],
-            title=title,
-            color=colors[i],
-            size=node_size,
-            x=None,  # Let physics determine X position
-            y=y_positions[i],
-            physics=True,
-            shape="dot",
-            group=functional_groups[i]
-        )
+    _add_styled_nodes(net, G, species_names, functional_groups, biomass, colors, trophic_levels)
 
     # Add edges (no value attribute to prevent auto-scaling)
     for edge in G.edges():
@@ -224,41 +249,7 @@ def create_flux_network(
     # Configure physics (same as topology network)
     net.set_options(_physics_options(arrow_scale=0.3, edge_scale_min=0.1, edge_scale_max=15))
 
-    # Normalize Y positions by trophic level (NaN-safe: short-weighted TL may be
-    # NaN for basal-unreachable cycle nodes; park those at a -15 sentinel below
-    # the [0,100] band so they don't collapse onto real min-TL nodes at y=0).
-    finite_tl = np.isfinite(trophic_levels)
-    NAN_TL_Y = -15.0
-    y_positions = np.full(len(trophic_levels), NAN_TL_Y, dtype=float)
-    if finite_tl.any():
-        min_tl = np.nanmin(trophic_levels)
-        max_tl = np.nanmax(trophic_levels)
-        if max_tl > min_tl:
-            y_positions[finite_tl] = 100 * (trophic_levels[finite_tl] - min_tl) / (max_tl - min_tl)
-        else:
-            y_positions[finite_tl] = 0.0
-
-    # Add nodes
-    for i, node in enumerate(nodes):
-        # Create tooltip (single line HTML for PyVis)
-        tl_str = f"{trophic_levels[i]:.2f}" if np.isfinite(trophic_levels[i]) else "n/a"
-        title = f"<b>{species_names[i]}</b><br>Functional Group: {functional_groups[i]}<br>Trophic Level: {tl_str}<br>Biomass: {biomass[i]:.2f} g/km²/day"
-
-        # Calculate node size based on biomass
-        node_size = NODE_SIZE_MIN + (biomass[i] / np.max(biomass) * NODE_SIZE_SCALE) if np.max(biomass) > 0 else NODE_SIZE_MIN
-
-        net.add_node(
-            node,
-            label=species_names[i],
-            title=title,
-            color=colors[i],
-            size=node_size,
-            x=None,
-            y=y_positions[i],
-            physics=True,
-            shape="dot",
-            group=functional_groups[i]
-        )
+    nodes = _add_styled_nodes(net, G, species_names, functional_groups, biomass, colors, trophic_levels)
 
     # Get all flux values for scaling
     flux_values = []
