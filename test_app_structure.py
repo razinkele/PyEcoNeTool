@@ -314,3 +314,19 @@ def test_dashboard_banner_absent_when_using_real_data(monkeypatch):
     monkeypatch.setattr(app, 'USING_EXAMPLE_NETWORK', False)
     html = str(htmltools.TagList(app.dashboard_ui()))
     assert "example network" not in html.lower()
+
+
+def test_apply_species_info_edits_validates_met_types_and_alignment():
+    """The editor apply handler must reject an edited met.types value outside
+    the accepted set and must re-check node/row alignment before
+    current_species_info.set(df) — both via app-level helpers, not ad hoc."""
+    tree = ast.parse(APP.read_text(encoding="utf-8"))
+    target = None
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) and node.name == "_apply_species_info_edits":
+            target = node
+            break
+    assert target is not None, "could not find _apply_species_info_edits"
+    calls = _calls_in(target)
+    assert "validate_met_types" in calls, calls
+    assert "_assert_aligned" in calls, calls

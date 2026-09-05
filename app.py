@@ -34,7 +34,8 @@ from network_analysis import (
 
 from flux_calculations import (
     fluxing,
-    validate_flux_equilibrium
+    validate_flux_equilibrium,
+    validate_met_types,
 )
 
 from network_viz import (
@@ -1450,6 +1451,17 @@ Keystoneness Analysis Summary:
                 "Edited table row count does not match the network; not applied.",
                 type="error", duration=6,
             )
+            return
+        if 'met.types' in df.columns:
+            try:
+                validate_met_types(df['met.types'].tolist(), context="edited species info")
+            except ValueError as exc:
+                ui.notification_show(f"Cannot apply edits: {exc}", type="error", duration=6)
+                return
+        try:
+            _assert_aligned(current_network(), df)
+        except ValueError as exc:
+            ui.notification_show(f"Cannot apply edits: {exc}", type="error", duration=6)
             return
         current_species_info.set(df)
         ui.notification_show("Species info updated.", type="message", duration=4)
