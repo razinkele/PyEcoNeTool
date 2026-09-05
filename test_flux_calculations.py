@@ -324,6 +324,15 @@ def test_calculate_losses_metabolic_types():
     assert losses[2] != losses[0], "'Other' type should be different"
 
 
+def test_calculate_losses_allometric_rejects_unknown_met_type():
+    """An unknown met.types value must raise ValueError naming the bad value
+    and the accepted set, not silently fall back to intercept 0 via .get(mt, 0)."""
+    bodymasses = np.array([1.0, 1.0])
+    met_types = ['invertebrates', 'mammal']  # 'mammal' is not an accepted value
+    with pytest.raises(ValueError, match="mammal"):
+        calculate_losses_allometric(bodymasses, met_types, temperature=10.0)
+
+
 def test_calculate_losses_allometric_pinned_invertebrate():
     """Closed-form pin for invertebrates at M=1.0 g and M=10.0 g, T=3.5C.
     The M=10 case makes the a*ln(M) body-mass term non-zero, so the test

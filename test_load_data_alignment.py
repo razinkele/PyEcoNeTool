@@ -27,6 +27,22 @@ def test_load_baltic_data_raises_on_name_mismatch(tmp_path, monkeypatch):
         load_baltic_data(base_dir=tmp_path)
 
 
+def test_load_baltic_data_rejects_unknown_met_type(tmp_path):
+    """load_baltic_data must validate met.types at ingestion, not defer to
+    calculate_losses_allometric at first use."""
+    g = nx.DiGraph()
+    g.add_node('n0', name='Cod'); g.add_node('n1', name='Sprat')
+    g.add_edge('n0', 'n1')
+    nx.write_graphml(g, tmp_path / "BalticFW_network.graphml")
+    pd.DataFrame({'species': ['Cod', 'Sprat'], 'fg': ['Fish', 'Fish'],
+                  'meanB': [1.0, 2.0], 'bodymasses': [1.0, 2.0],
+                  'met.types': ['Other', 'mammal'], 'efficiencies': [0.5, 0.5]}
+                 ).to_csv(tmp_path / "BalticFW_species_info.csv", index=False)
+    from load_data import load_baltic_data
+    with pytest.raises(ValueError, match="mammal"):
+        load_baltic_data(base_dir=tmp_path)
+
+
 def test_load_baltic_data_resolves_against_base_dir_not_cwd(tmp_path, monkeypatch):
     """load_baltic_data(base_dir=tmp_path) must read tmp_path's files even
     though cwd points somewhere else entirely — proves resolution is no

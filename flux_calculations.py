@@ -204,6 +204,25 @@ def fluxing(
     return flux_matrix
 
 
+ACCEPTED_MET_TYPES = frozenset({"invertebrates", "ectotherm vertebrates", "Other"})
+
+
+def validate_met_types(met_types, context: str = "") -> None:
+    """Raise ValueError naming any met.types value outside ACCEPTED_MET_TYPES.
+
+    Used at three sites so the check happens exactly once, in one place:
+    calculate_losses_allometric, load_data.load_baltic_data, and the editor
+    apply handler in app.py.
+    """
+    unknown = sorted(set(met_types) - ACCEPTED_MET_TYPES)
+    if unknown:
+        where = f" in {context}" if context else ""
+        raise ValueError(
+            f"Unknown met.types value(s) {unknown}{where}; "
+            f"accepted values are {sorted(ACCEPTED_MET_TYPES)}."
+        )
+
+
 def calculate_losses_allometric(
     bodymasses: np.ndarray,
     met_types: list,
@@ -231,6 +250,8 @@ def calculate_losses_allometric(
         Brown, J. H., et al. (2004). Toward a metabolic theory of ecology.
         Ecology, 85(7), 1771-1789.
     """
+    validate_met_types(met_types, context="calculate_losses_allometric")
+
     boltz = 0.00008617343  # Boltzmann constant
 
     # Normalization constants (intercept of body-mass metabolism scaling)
@@ -240,8 +261,8 @@ def calculate_losses_allometric(
         "Other": 0
     }
 
-    # Get x0 for each species
-    x0 = np.array([losses_param.get(mt, 0) for mt in met_types])
+    # Get x0 for each species (all values are now known to be in the accepted set)
+    x0 = np.array([losses_param[mt] for mt in met_types])
 
     # Calculate losses: exp((a * log(M) + x0) - E/(k*T))
     losses = np.exp(

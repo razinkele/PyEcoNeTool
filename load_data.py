@@ -89,6 +89,9 @@ def load_baltic_data(base_dir: Path | None = None):
     if missing_cols:
         raise ValueError(f"Missing required columns: {missing_cols}")
 
+    from flux_calculations import validate_met_types
+    validate_met_types(info['met.types'].tolist(), context="load_baltic_data")
+
     # Verify data integrity
     print(f"\nData Summary:")
     print(f"  Network nodes: {len(G.nodes())}")
