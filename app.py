@@ -7,7 +7,7 @@ Fixed: Node tooltips now properly formatted, edges have uniform width in topolog
 Optimized: Reduced stabilization iterations to 1000 for faster network loading.
 """
 
-from shiny import App, ui, render, reactive
+from shiny import App, ui, render, reactive, req
 import pandas as pd
 import numpy as np
 import networkx as nx
@@ -17,6 +17,7 @@ from pathlib import Path
 import pickle
 import time
 import functools
+import os
 import shinyswatch
 
 # Import custom modules
@@ -46,6 +47,10 @@ from pyvis.shiny import render_network
 from feedback_reporter import collect_system_context, submit_feedback
 
 import logging
+logging.basicConfig(
+    level=os.environ.get("ECONETPY_LOG_LEVEL", "INFO"),
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
 logger = logging.getLogger("econetpy.app")
 
 _ERROR_MSG = "This panel could not be computed — see logs."
@@ -1116,10 +1121,13 @@ Node-Weighted Network Indicators:
         G = current_network()
         info = current_species_info()
         temp = input.temperature()
+        req(temp is not None)
+        bodymasses = info['bodymasses'].values
+        req(np.all(np.isfinite(bodymasses)) and np.all(bodymasses > 0))
 
         # Calculate metabolic losses using allometric scaling
         losses = calculate_losses(
-            info['bodymasses'].values,
+            bodymasses,
             info['met.types'].tolist(),
             temp
         )

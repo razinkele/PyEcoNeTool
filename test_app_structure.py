@@ -117,3 +117,19 @@ def test_editor_registers_a_patch_fn():
     (editable_columns= does not exist on render.DataGrid in this Shiny version)."""
     src = APP.read_text(encoding="utf-8")
     assert "set_patch_fn" in src, "editor must register a patch fn to protect key columns"
+
+
+def test_flux_effect_guards_temperature_and_bodymasses():
+    """The flux effect must req()-guard against a cleared temperature input and
+    against non-finite/non-positive bodymasses before calling calculate_losses,
+    instead of letting a TypeError/inf-NaN escape into calculate_losses."""
+    src = APP.read_text(encoding="utf-8")
+    assert "req(temp is not None)" in src, "missing req() guard on temperature"
+    assert "req(np.all(np.isfinite(bodymasses)) and np.all(bodymasses > 0))" in src, \
+        "missing req() guard on bodymasses finiteness/positivity"
+
+
+def test_logging_configured():
+    src = APP.read_text(encoding="utf-8")
+    assert "logging.basicConfig(" in src
+    assert "ECONETPY_LOG_LEVEL" in src
