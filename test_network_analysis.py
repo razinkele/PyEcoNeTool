@@ -305,24 +305,33 @@ def test_topological_indicators_empty_network():
 # ============================================================================
 
 def test_node_weighted_indicators(simple_linear_chain):
-    """Test node-weighted indicators"""
+    """Node-weighted indicators pinned to closed-form values on the linear
+    chain (each predator has exactly 1 prey, each prey exactly 1 predator,
+    so nwG=nwV=1.0 exactly) and on the omnivory web (nwG != nwV, catching a
+    swapped in/out-degree regression that '> 0' cannot)."""
     G, info = simple_linear_chain
-    biomass = info['meanB'].values
+    biomass = info['meanB'].values  # [100.0, 50.0, 25.0]
 
     indicators = get_node_weighted_indicators(G, biomass)
 
-    # All indicators should be positive and finite
-    assert indicators['nwC'] > 0, "Node-weighted connectance should be positive"
-    assert indicators['nwG'] > 0, "Node-weighted generality should be positive"
-    assert indicators['nwV'] > 0, "Node-weighted vulnerability should be positive"
-    assert indicators['nwTL'] > 1.0, "Node-weighted TL should be > 1"
-
-    # Node-weighted TL should be less than or equal to arithmetic mean TL
-    # because basal species often have higher biomass
-    topo_indicators = get_topological_indicators(G)
-    # This isn't always true, but for this specific network it should be
-    # Just check it's reasonable
+    assert np.isclose(indicators['nwC'], 225.0 / 700.0), indicators['nwC']
+    assert np.isclose(indicators['nwG'], 1.0), indicators['nwG']
+    assert np.isclose(indicators['nwV'], 1.0), indicators['nwV']
     assert 1.0 < indicators['nwTL'] < 3.0, "Node-weighted TL should be reasonable"
+
+
+def test_node_weighted_indicators_omnivory_pinned(simple_omnivory):
+    """Same closed-form pin on a branching (non-chain) web, where nwG and
+    nwV differ from each other and from 1.0 -- this is what actually
+    distinguishes a correct in/out-degree assignment from a swapped one."""
+    G, info = simple_omnivory
+    biomass = info['meanB'].values  # [100.0, 50.0, 25.0]
+
+    indicators = get_node_weighted_indicators(G, biomass)
+
+    assert np.isclose(indicators['nwC'], 0.5), indicators['nwC']
+    assert np.isclose(indicators['nwG'], 100.0 / 75.0), indicators['nwG']
+    assert np.isclose(indicators['nwV'], 250.0 / 150.0), indicators['nwV']
 
 
 def test_node_weighted_with_zero_biomass():
