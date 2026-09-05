@@ -68,7 +68,7 @@ pip install -r requirements.txt
 
 - shiny>=1.0.0
 - networkx>=3.0
-- pyvis>=0.3.2
+- pyvis @ git+https://github.com/razinkele/pyvis.git@v4.2
 - pandas>=2.0.0
 - numpy>=1.24.0
 - scipy>=1.10.0
@@ -187,7 +187,6 @@ Edit deployment settings in `deploy.sh`:
 
 ## 📚 Documentation
 
-- **Data Import Guide**: See the "Data Import" tab in the application
 - **Format Examples**: Check the `examples/` directory
 - **Deployment Guide**: See `deployment/README.md`
 
@@ -225,4 +224,4 @@ For questions or support, please open an issue on [GitHub](https://github.com/ra
 
 ---
 
-<a rel="license" href="http://creativecommons.org/licenses/by-sa/4.0/"><img alt="Creative Commons License" style="border-width:0" src="https://i.creativecommons.org/l/by-sa/4.0/80x15.png" /></a><br />This work is licensed under a <a rel="license" href="http://creativecommons.org/licenses/by-sa/4.0/">Creative Commons Attribution-ShareAlike 4.0 International License</a>.
+This work is licensed under the [GNU General Public License v3.0](LICENSE).
