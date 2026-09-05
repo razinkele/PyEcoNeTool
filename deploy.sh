@@ -98,6 +98,9 @@ EXCLUDE_PATTERNS=(
   "*.ewemdb"
   "temp_*.html"
   "*.zip"
+  # never sync or --delete server-collected user data
+  "data/"
+  "data/user_feedback_log.ndjson"
 )
 
 # Flags
