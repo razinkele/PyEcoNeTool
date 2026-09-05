@@ -20,14 +20,15 @@
 - Every behavior change lands with a test that was seen RED first. Where a Shiny reactive closure cannot be driven without a live session, an AST/source-structural test is acceptable but must still be shown RED first.
 - Never use shell heredocs on this machine (cmd.exe mangles them) — write scratch scripts with the Write tool.
 - No pushes. Tags only: `audit3-phase1` .. `audit3-phase6`.
-- Work on a feature branch off `master` (`a88a7a7`), created at execution time.
+- Work on a feature branch off `master` (`27086de` or later), created at execution time.
 
 ## Cross-phase dependencies (read before starting any phase)
 
-- **Task 1 (`1.2`) is load-bearing for the whole plan.** It moves data-file resolution from the process cwd to `Path(__file__).parent`, which BREAKS two existing remediation-#2 tests that use `monkeypatch.chdir` (`test_load_baltic_data_raises_on_name_mismatch`, `test_load_default_data_rejects_permuted_pickle`). Task 1 rewrites both onto `base_dir=` / `monkeypatch.setattr(app, "DATA_DIR", ...)` in the same task. Task 21 also consumes `load_baltic_data(base_dir=...)`.
+- **Task 1 (`1.2`) is load-bearing for the whole plan.** It moves data-file resolution from the process cwd to `Path(__file__).parent`, which BREAKS two existing remediation-#2 tests that use `monkeypatch.chdir` (`test_load_baltic_data_raises_on_name_mismatch`, `test_load_default_data_rejects_permuted_pickle`). Task 1 rewrites both onto `base_dir=` / `monkeypatch.setattr(app, "DATA_DIR", ...)` in the same task. Task 23 (`3.8`, the synthetic same-set/different-order reindex proof) also consumes `load_baltic_data(base_dir=...)`.
 - **Phase 2 assumes Phase 1 has landed**: `_assert_aligned` exists in `app.py` and the editor apply handler already validates `met.types`. Phase 2's Task 12 extends that same handler.
-- **Task 43 (`6.3`) changes emitted node attributes**, so the pinned viz tests `test_topology_node_size_and_y_position_pinned` and `test_flux_node_size_and_y_position_pinned` are updated in that same task, deliberately.
-- **Task 11 (`2.4`) returns thresholds via the DataFrame's `.attrs`**, chosen because every existing caller unpacks `calculate_keystoneness` as a single DataFrame; a second return value would break all of them.
+- **Task 41 (`6.3`) changes emitted node attributes**, so the pinned viz tests `test_topology_node_size_and_y_position_pinned` and `test_flux_node_size_and_y_position_pinned` are updated in that same task, deliberately.
+- **Task 13 (`2.4`) returns thresholds via the DataFrame's `.attrs`**, chosen because every existing caller unpacks `calculate_keystoneness` as a single DataFrame; a second return value would break all of them.
+- **Task 45 is the acceptance gate for the whole plan.** It is the spec-required post-Phase-6 live smoke (design doc L105) — the first and only step that starts the real app and drives it: a Data Editor round-trip through `data_patched()`/`set_patch_fn`, a forced renderer error checked against `safe_render`'s clean panel, and a self-contained network-HTML download. It runs after Task 44's `audit3-phase6` tag and depends on Task 14 (inlined download assets), Task 20 (`safe_render`), and Phase 1's editor validations having all landed. The plan is not complete until Task 45 is green.
 
 ---
 
@@ -538,7 +539,10 @@ def test_using_example_network_flag_set_when_sources_absent(tmp_path, monkeypatc
     startup except clause."""
     app = importlib.import_module("app")
     monkeypatch.setattr(app, 'DATA_DIR', tmp_path)  # empty: no .pkl, no sources
-    app.USING_EXAMPLE_NETWORK = False
+    # monkeypatch (not a bare assignment) so the module flag is restored at
+    # teardown — same reason DATA_DIR above uses it. A bare assignment would
+    # leak USING_EXAMPLE_NETWORK=True into every later test in the session.
+    monkeypatch.setattr(app, 'USING_EXAMPLE_NETWORK', False)
 
     G, info = app.load_default_data()
 
@@ -547,15 +551,23 @@ def test_using_example_network_flag_set_when_sources_absent(tmp_path, monkeypatc
 ```
 - [ ] **Step 2: Run to confirm RED**
 Run: `micromamba run -n shiny python -m pytest test_app_structure.py::test_startup_except_clause_is_narrow_not_bare_exception test_app_structure.py::test_using_example_network_flag_set_when_sources_absent -v`
-Expected: FAIL — first test: `app.py:167` is `except Exception as e:`, so `caught` is an `ast.Name` (`Exception`), not an `ast.Tuple`; the assertion `isinstance(caught, ast.Tuple)` fails. Second test: nothing in `load_default_data` (`app.py:91-126`, as left by Task 4) ever assigns `USING_EXAMPLE_NETWORK` — the name does not exist as a module attribute at all yet, and the test's own `app.USING_EXAMPLE_NETWORK = False` line is the only thing setting it, so after the call it is still `False`, not `True`.
+Expected: FAIL — first test: `app.py:167` is `except Exception as e:`, so `caught` is an `ast.Name` (`Exception`), not an `ast.Tuple`; the assertion `isinstance(caught, ast.Tuple)` fails. Second test: `USING_EXAMPLE_NETWORK` does not exist as a module attribute at all yet — nothing in `load_default_data` (`app.py:91-126`, as left by Task 4) ever assigns it — so `monkeypatch.setattr(app, 'USING_EXAMPLE_NETWORK', False)` raises `AttributeError: <module 'app'> has no attribute 'USING_EXAMPLE_NETWORK'` before the call is even reached. (Once Step 3 defines the module-level flag, the same test re-runs and then fails on `assert app.USING_EXAMPLE_NETWORK is True` if the fallback path does not set it — both are the RED this test is for.)
 - [ ] **Step 3: Narrow the module-level except clause AND set the flag on the actual fallback path inside `load_default_data`**
 
-The flag must be set where `create_example_network()` is actually invoked. That is overwhelmingly `load_default_data`'s own internal `except (FileNotFoundError, ImportError)` (as left by Task 4) — the module-level except at `app.py:167` only fires if `load_default_data()` itself propagates one of those two exception types, which today it never does (it already catches them internally), so it is a defensive backstop, not the operative path.
+The flag must be set where `create_example_network()` is actually invoked. That is overwhelmingly `load_default_data`'s own internal `except (FileNotFoundError, ImportError)` (as left by Task 4) — the module-level except at `app.py:167` only fires if `load_default_data()` itself propagates one of those two exception types. It does not propagate `FileNotFoundError`/`ImportError` today, because the reconstruction path catches both internally, so that clause is a defensive backstop rather than the operative path.
+
+Note what is NOT guarded, and do not assume it is: the `pickle.load(f)` at `app.py:107-108` and the dict-shape check below it sit outside every `try` in `load_default_data`, so a corrupt cache raises `UnpicklingError`/`EOFError` straight out of the function (and out of `import app`). That hole is closed in **Task 8, Step 4** — do not try to fix it here.
+
+Insert `USING_EXAMPLE_NETWORK = False` directly **below the `DATA_DIR = Path(__file__).parent` line** added by Task 1. Anchor on `DATA_DIR`, NOT on adjacency to `def load_default_data():` — Task 4 has already inserted the whole `_assert_aligned` function between `DATA_DIR` and `load_default_data`, so they are no longer neighbours:
 ```python
 # app.py, immediately after the `DATA_DIR = Path(__file__).parent` line added
-# by Task 1 (still just above `def load_default_data():`), add the flag:
+# by Task 1, and ABOVE Task 4's `_assert_aligned`:
 DATA_DIR = Path(__file__).parent
 USING_EXAMPLE_NETWORK = False
+
+
+def _assert_aligned(G, info):   # <- added by Task 4; unchanged, shown only as the anchor
+    ...
 
 
 def load_default_data():
@@ -613,7 +625,7 @@ git commit -m "fix: let a data ValueError abort import instead of masking it as 
 ### Task 6: Visible banner when the example network is in use (`1.3`)
 
 **Files:**
-- Modify: `app.py:176-224` (`dashboard_ui` lambda)
+- Modify: `app.py:176-228` (`dashboard_ui` lambda; verified: `dashboard_ui = lambda:` at 176, `width=1/3` at 226, closing `)` at 227 and 228, `network_ui` begins at 230)
 - Test: `test_app_structure.py`
 
 **Interfaces:**
@@ -653,7 +665,7 @@ Run: `micromamba run -n shiny python -m pytest test_app_structure.py::test_dashb
 Expected: FAIL — `dashboard_ui` (`app.py:176`) is a fixed `lambda: ui.layout_sidebar(...)` with no reference to `USING_EXAMPLE_NETWORK` and no banner text anywhere in its output; rendering it with `htmltools.TagList(...)` gives the real markup (confirmed manually: today it is ~5400 chars of card/sidebar HTML with no "example network" text anywhere), so `"example network" in html.lower()` is False.
 - [ ] **Step 3: Make `dashboard_ui` a function that reads the flag and prepends a banner**
 
-The whole current definition is `app.py:176-224`:
+The whole current definition is `app.py:176-228`:
 ```python
 dashboard_ui = lambda: ui.layout_sidebar(
         ui.sidebar(
@@ -696,7 +708,7 @@ dashboard_ui = lambda: ui.layout_sidebar(
         )
     )
 ```
-Replace only the first line (`dashboard_ui = lambda: ui.layout_sidebar(` at `app.py:176`) and the last two lines (`            width=1/3\n        )\n    )` at `app.py:222-224`) so the body in between is unchanged:
+Replace only the first line (`dashboard_ui = lambda: ui.layout_sidebar(` at `app.py:176`) and the last three lines (`            width=1/3\n        )\n    )` at `app.py:226-228`) so the body in between is unchanged:
 ```python
 # app.py:176, replace:
 dashboard_ui = lambda: ui.layout_sidebar(
@@ -720,7 +732,7 @@ def dashboard_ui():
         ui.sidebar(
 ```
 ```python
-# app.py:222-224, replace:
+# app.py:226-228, replace:
             width=1/3
         )
     )
@@ -744,7 +756,7 @@ git commit -m "fix: show a visible dashboard banner when serving the example net
 ### Task 7: Validate edits before applying them — `met.types` accepted set and node/row alignment (`1.4` part B, `1.5` part B)
 
 **Files:**
-- Modify: `app.py:1362-1387` (`_apply_species_info_edits`)
+- Modify: `app.py:1364-1390` (`_apply_species_info_edits`; verified: `@reactive.effect` at 1364, `def _apply_species_info_edits():` at 1366, function body ends at 1390 with the `"Species info updated."` notification)
 - Test: `test_app_structure.py`
 
 **Interfaces:**
@@ -773,10 +785,10 @@ def test_apply_species_info_edits_validates_met_types_and_alignment():
 ```
 - [ ] **Step 2: Run to confirm RED**
 Run: `micromamba run -n shiny python -m pytest test_app_structure.py::test_apply_species_info_edits_validates_met_types_and_alignment -v`
-Expected: FAIL — `_apply_species_info_edits` (`app.py:1362-1387`) today only coerces numeric columns and checks `len(df) != current_network().number_of_nodes()`; it calls neither `validate_met_types` nor `_assert_aligned`, so both membership assertions fail.
+Expected: FAIL — `_apply_species_info_edits` (`app.py:1364-1390`) today only coerces numeric columns and checks `len(df) != current_network().number_of_nodes()`; it calls neither `validate_met_types` nor `_assert_aligned`, so both membership assertions fail.
 - [ ] **Step 3: Add the two validations before `current_species_info.set(df)`**
 ```python
-# app.py:1362-1387, replace:
+# app.py:1364-1390, replace:
     @reactive.effect
     @reactive.event(input.update_species_info)
     def _apply_species_info_edits():
@@ -873,8 +885,8 @@ git commit -m "fix: editor apply handler validates met.types and node/row alignm
 ### Task 8: Repair the stale pickle once instead of bypassing it on every start (`1.7`)
 
 **Files:**
-- Modify: `app.py:91-131` (`load_default_data`, extends Tasks 4-5's version)
-- Test: `test_app_structure.py`
+- Modify: `app.py:91-131` (`load_default_data`, extends Tasks 4-5's version) — two edits: re-save after a stale-cache fallthrough (Step 3) and a guard around the `pickle.load` at `app.py:107-108` (Step 4)
+- Test: `test_app_structure.py` (two new tests)
 
 **Interfaces:**
 - Consumes: `app.DATA_DIR` (Task 1), `app.USING_EXAMPLE_NETWORK` (Task 5, untouched by this task), `load_data.save_to_pickle` (existing, unchanged signature `save_to_pickle(network, species_info, output_file="BalticFW.pkl")`)
@@ -944,10 +956,16 @@ Expected: FAIL — `load_default_data` (`app.py:120-123` post-Task-4) reconstruc
         _assert_aligned(G, info)
         # Repair a stale/absent cache once, so the next start takes the fast
         # pickle path instead of rebuilding on every run.
+        # NOTE the handler is (OSError, ImportError), not just OSError: this
+        # `from load_data import save_to_pickle` sits INSIDE the outer
+        # `try: ... except (FileNotFoundError, ImportError)`. A narrower handler
+        # would let an ImportError from this line escape to the outer clause and
+        # silently drop the app onto the example network even though the Baltic
+        # data loaded fine. Catching it here keeps the failure local to the cache.
         try:
             from load_data import save_to_pickle
             save_to_pickle(G, info, output_file=str(DATA_DIR / "BalticFW.pkl"))
-        except OSError as exc:
+        except (OSError, ImportError) as exc:
             print(f"Could not re-save BalticFW.pkl ({exc}); continuing without cache.")
         return G, info
     except (FileNotFoundError, ImportError) as exc:
@@ -958,13 +976,80 @@ Expected: FAIL — `load_default_data` (`app.py:120-123` post-Task-4) reconstruc
         _assert_aligned(G, info)
         return G, info
 ```
-- [ ] **Step 4: Run + full suite**
+- [ ] **Step 4: Guard the pickle read itself against a corrupt file**
+
+Same defect class, same function, so it lands here rather than in its own task. `pickle.load` at
+`app.py:107-108` and the dict-shape check just below it sit **outside** any `try`/`except`: a
+truncated or otherwise corrupt `BalticFW.pkl` raises `UnpicklingError`/`EOFError` straight out of
+`load_default_data()` — and, because that happens at module import, straight out of `import app`.
+Nothing catches it: `load_default_data`'s only handler is the reconstruction `except
+(FileNotFoundError, ImportError)`, which is further down and does not cover the pickle read. Wrap
+the read + shape check so a corrupt cache falls through to reconstruction exactly like a stale one.
+
+The corrupt-pickle test (add to `test_app_structure.py` alongside the Step 1 test):
+```python
+def test_load_default_data_survives_a_corrupt_pickle(tmp_path, monkeypatch):
+    """A truncated/corrupt BalticFW.pkl must fall through to reconstruction,
+    not raise UnpicklingError out of load_default_data() (and hence out of
+    `import app`)."""
+    import networkx as nx
+    import pandas as pd
+    app = importlib.import_module("app")
+    monkeypatch.setattr(app, 'DATA_DIR', tmp_path)
+    (tmp_path / "BalticFW.pkl").write_bytes(b"\x80\x04garbage-not-a-pickle")
+
+    rebuilt_g = nx.DiGraph(); rebuilt_g.add_node('Cod'); rebuilt_g.add_node('Sprat')
+    rebuilt_info = pd.DataFrame({'species': ['Cod', 'Sprat'], 'fg': ['Fish', 'Fish'],
+                                 'meanB': [1.0, 2.0], 'bodymasses': [1.0, 2.0],
+                                 'met.types': ['Other', 'Other'], 'efficiencies': [0.5, 0.5]})
+    monkeypatch.setattr('load_data.load_baltic_data',
+                         lambda base_dir=None: (rebuilt_g, rebuilt_info))
+
+    G, info = app.load_default_data()
+    assert list(G.nodes()) == info['species'].tolist() == ['Cod', 'Sprat']
+```
+Run it first to confirm RED:
+`micromamba run -n shiny python -m pytest test_app_structure.py::test_load_default_data_survives_a_corrupt_pickle -v`
+Expected: FAIL — `_pickle.UnpicklingError: pickle data was truncated` propagates out of
+`app.load_default_data()`; nothing in the function catches it. (Verified: `pickle.loads(b"\x80\x04garbage-not-a-pickle")`
+raises exactly that. `EOFError` is kept in the handler tuple below for other truncation points, and
+`\xff\xff` — `invalid load key` — is an equally valid corrupt-file fixture if you prefer one.)
+
+Then wrap the read (locate by the `with open(data_file, 'rb') as f:` text; `data_file` is
+`DATA_DIR / "BalticFW.pkl"` as of Task 1):
+```python
+# app.py, replace:
+    if data_file.exists():
+        with open(data_file, 'rb') as f:
+            data = pickle.load(f)
+        if not (isinstance(data, dict) and {'network', 'info'} <= set(data.keys())):
+            print("BalticFW.pkl missing 'network'/'info'; rebuilding from sources.")
+        else:
+            ...
+# with (same body, now inside a guard that falls through on a corrupt file):
+    if data_file.exists():
+        try:
+            with open(data_file, 'rb') as f:
+                data = pickle.load(f)
+            if not (isinstance(data, dict) and {'network', 'info'} <= set(data.keys())):
+                print("BalticFW.pkl missing 'network'/'info'; rebuilding from sources.")
+            else:
+                ...   # unchanged: required-columns + alignment check, `return G_pkl, info_pkl`
+        except (EOFError, pickle.UnpicklingError, AttributeError, ModuleNotFoundError) as exc:
+            print(f"BalticFW.pkl is unreadable ({exc}); rebuilding from sources.")
+        # fall through to reconstruction
+```
+(`AttributeError`/`ModuleNotFoundError` cover a pickle written by a since-renamed class or module —
+the same "cache no longer matches the code" failure, surfaced by the unpickler rather than by the
+shape check. Do NOT widen this to bare `Exception`: a `ValueError` from `_assert_aligned` further
+down must still propagate, per Task 5.)
+- [ ] **Step 5: Run + full suite**
 Run: `micromamba run -n shiny python -m pytest test_app_structure.py -v && micromamba run -n shiny python -m pytest`
-Expected: PASS — new test green; 133+ passed, no new warnings (the real dev-machine `BalticFW.pkl` at repo root is untouched by this test since it monkeypatches `DATA_DIR` to `tmp_path`).
-- [ ] **Step 5: Commit**
+Expected: PASS — both new tests green; the 133-test baseline plus every test added so far (cumulative; do not expect an exact number), no new warnings (the real dev-machine `BalticFW.pkl` at repo root is untouched by these tests since they monkeypatch `DATA_DIR` to `tmp_path`).
+- [ ] **Step 6: Commit**
 ```bash
 git add app.py test_app_structure.py
-git commit -m "fix: re-save the rebuilt pickle after a stale-cache fallthrough"
+git commit -m "fix: re-save the rebuilt pickle after a stale-cache fallthrough; survive a corrupt pickle"
 ```
 
 ---
@@ -973,7 +1058,7 @@ git commit -m "fix: re-save the rebuilt pickle after a stale-cache fallthrough"
 
 - [ ] **Step 1: Full suite**
 Run: `micromamba run -n shiny python -m pytest`
-Expected: All tests pass (133 baseline + the tests added in Tasks 1–8); exactly the 3 known `network_analysis.py` `UserWarning`s (lines 122, 134, 186) and no others.
+Expected: all tests pass — the 133-test baseline plus every test added in Tasks 1-8 and all preceding phases (cumulative; do not expect an exact number). Only the 3 known `network_analysis.py` UserWarnings (lines 122, 134, 186); any other warning is a defect.
 - [ ] **Step 2: Import smoke test**
 Run: `micromamba run -n shiny python -c "import app; print('app OK')"`
 Expected: prints `app OK` with no traceback (the tracked `BalticFW_network.graphml`/`BalticFW_species_info.csv` are aligned, so `_assert_aligned` does not raise on this machine; `USING_EXAMPLE_NETWORK` is `False`).
@@ -986,7 +1071,7 @@ git tag audit3-phase1
 
 # PHASE 2 — Flux and keystoneness presentation correctness
 
-Baseline for this phase is `master` at `bf37c43` plus Phase 1 (data integrity/startup)
+Baseline for this phase is `master` at `27086de` plus Phase 1 (data integrity/startup)
 landed first. Two Phase-1 facts this phase's tasks build on:
 
 - `app.py` gains `_assert_aligned(G, info)` and calls it before `current_species_info.set(df)`
@@ -1484,7 +1569,7 @@ git commit -m "fix: downloaded network HTML inlines CDN resources instead of ref
 
 - [ ] **Step 1: Full suite**
 Run: `micromamba run -n shiny python -m pytest -q`
-Expected: all tests pass; exactly the 3 known `network_analysis.py` UserWarnings (lines 122, 134, 186) and no others.
+Expected: all tests pass — the 133-test baseline plus every test added in Tasks 10-14 and all preceding phases (cumulative; do not expect an exact number). Only the 3 known `network_analysis.py` UserWarnings (lines 122, 134, 186); any other warning is a defect.
 - [ ] **Step 2: Import check**
 Run: `micromamba run -n shiny python -c "import app; print('app OK')"`
 Expected: prints `app OK` with no exception.
@@ -1554,7 +1639,7 @@ hypothesis>=6.100.0
 
 - [ ] **Step 4: Run + full suite**
 Run: `micromamba run -n shiny python -m pytest test_app_structure.py::test_dev_dependencies_declared_in_manifests -v` then `micromamba run -n shiny python -m pytest`
-Expected: PASS; 134 passed (133 + this new test), 3 known UserWarnings.
+Expected: PASS — this task adds one new test; the suite total is the 133-test baseline plus every test added so far (Phases 1-2 have already added several; cumulative — do not expect an exact number). Only the 3 known `network_analysis.py` UserWarnings (lines 122, 134, 186); any other warning is a defect.
 
 - [ ] **Step 5: Commit**
 ```bash
@@ -1778,14 +1863,22 @@ def test_topology_html_safe_for_special_chars():
         "angle bracket in species name was dropped"
     assert '&amp;amp;' not in html, "double-escaped ampersand"
 ```
-The bold-marker test only asserts the double-escaped form is ABSENT; it never asserts the tag is present in ANY form, so a regression that silently strips `<b>...</b>` entirely still passes. The special-chars test's three-way `or` accepts the completely RAW, unescaped substring as a passing outcome for every character class — meaning a regression that stops escaping entirely (a real security/rendering bug: raw `"`, `&`, `<i>` breaking out of the JSON string) is treated as success, not failure.
+The bold-marker test only asserts the double-escaped form is ABSENT; it never asserts the tag is present in ANY form, so a regression that silently strips `<b>...</b>` entirely still passes.
 
-Verified actual `generate_html()` output for both fixtures (ran `create_topology_network(...).generate_html()` directly): pyvis's HTML-safe JSON mode currently produces exactly:
-- `<b>Sprat</b>` (bold marker)
-- `\\"trutta\\"` (double-quote)
-- `Mytilus & Co.` (ampersand)
-- `<i>italicus</i>` (angle brackets)
-— and none of the raw forms (`<b>Sprat</b>`, `"trutta"`, `Mytilus & Co.`, `<i>italicus</i>`) appear anywhere in the output.
+The special-chars test is vacuous in a narrower but still real way. Its three-way `or` has one branch per form, and **two of the three accept the completely RAW, unescaped substring**:
+- ampersand: `'Mytilus &amp; Co.' in html or 'Mytilus & Co.' in html or ...` — the middle branch is the raw form.
+- angle brackets: `'&lt;i&gt;' in html or '<i>' in html or ...` — the middle branch is the raw form.
+- double quote: `'\\"trutta\\"' or '&quot;trutta&quot;' or '\\u0022trutta\\u0022'` — **no** raw branch; this one would in fact catch a total-escaping regression.
+
+So a regression that stops escaping entirely (a real security/rendering bug: raw `&` and `<i>` breaking out of the JSON string) is treated as success by the ampersand and angle-bracket assertions, and only the quote assertion would notice.
+
+Verified actual `generate_html()` output for both fixtures (ran `create_topology_network(...).generate_html()` directly against this env's pyvis fork). The forms that ARE present, written as they appear in a Python source literal, are the JSON-unicode-escaped ones — exactly the forms Step 1 asserts:
+- `'\\u003cb\\u003eSprat\\u003c/b\\u003e'` (bold marker)
+- `'\\"trutta\\"'` (double-quote)
+- `'Mytilus \\u0026 Co.'` (ampersand)
+- `'\\u003ci\\u003eitalicus\\u003c/i\\u003e'` (angle brackets)
+
+And the forms that are ABSENT — every raw form and every HTML-entity form — are: `'<b>Sprat</b>'`, `'&amp;lt;b&amp;gt;'`, `'&lt;b&gt;'`, `'"trutta"'`, `'&quot;trutta&quot;'`, `'\\u0022trutta\\u0022'`, `'Mytilus & Co.'`, `'Mytilus &amp; Co.'`, `'<i>italicus</i>'`, `'&lt;i&gt;'`, `'&amp;amp;'`. Every one of Step 1's `in`/`not in` assertions therefore holds against today's output; the point of this task is that the OLD assertions also hold against output where escaping is broken.
 
 - [ ] **Step 1: Write the failing test**
 ```python
@@ -1831,13 +1924,46 @@ def test_topology_html_safe_for_special_chars():
 ```
 
 - [ ] **Step 2: Run to confirm RED (mode A — old tests are vacuous; pure-Python demonstration, no file edit needed)**
-No production or test file needs to be touched for this demonstration — construct the broken output as a literal Python string standing in for a "stopped escaping entirely" regression, and check the OLD assertions against it directly (e.g. in a scratch `micromamba run -n shiny python -c "..."` snippet, or a throwaway local pytest run):
+No production or test file needs to be touched for this demonstration — construct each broken output as a literal Python string standing in for a real regression, and check the OLD and NEW assertions against it directly. Both regressions must be demonstrated, one per vacuous test.
+Write this to a scratch file with the Write tool (never a heredoc) and run it with
+`micromamba run -n shiny python <scratch>`. It needs TWO broken outputs, one per vacuous test.
+
+**(A) `test_topology_html_safe_for_special_chars` — "escaping silently stopped working".**
 ```python
-broken_html = 'label": "Mytilus & Co.", ... "title": "<b>Sprat</b>" ... <i>italicus</i> ... "trutta" ...'
-# OLD test_topology_html_safe_for_special_chars assertions, evaluated by hand:
-assert '\\"trutta\\"' in broken_html or '&quot;trutta&quot;' in broken_html or '\\u0022trutta\\u0022' in broken_html  # -> raises (none present)
+# A regression that emits species names raw, with no JSON escaping at all.
+broken_raw = 'label": "Mytilus & Co.", "title": "Genus <i>italicus</i>", "x": "Salmo \\"trutta\\""'
+
+# OLD assertions (three-way `or`) — the ampersand and angle-bracket ones PASS
+# purely on their raw branch:
+assert 'Mytilus &amp; Co.' in broken_raw or 'Mytilus & Co.' in broken_raw or 'Mytilus \\u0026 Co.' in broken_raw   # True (raw branch)
+assert '&lt;i&gt;' in broken_raw or '<i>' in broken_raw or '\\u003ci\\u003eitalicus\\u003c/i\\u003e' in broken_raw  # True (raw branch)
+print("OLD special-chars assertions accepted fully-unescaped output -> vacuous")
+
+# NEW assertions against the same string — every one of them is False, i.e. would raise:
+assert ('Mytilus \\u0026 Co.' in broken_raw) is False          # "ampersand not escaped"
+assert ('Mytilus & Co.' not in broken_raw) is False            # "ampersand leaked raw"
+assert ('\\u003ci\\u003eitalicus\\u003c/i\\u003e' in broken_raw) is False   # "angle brackets not escaped"
+assert ('<i>italicus</i>' not in broken_raw) is False          # "angle brackets leaked raw"
+print("NEW special-chars assertions all FAIL on that output -> not vacuous")
 ```
-Adjust `broken_html` to include the literal raw substrings (`'Mytilus & Co.'`, `'<i>italicus</i>'`) that a real "escaping silently stopped working" regression would emit, and confirm the OLD three-way `or` DOES accept them (e.g. `'Mytilus & Co.' in broken_html or ...` is `True` purely from the raw branch) while the NEW assertions (`'Mytilus & Co.' not in html`, `'<i>italicus</i>' not in html`) FAIL against that same string. This confirms: the old test cannot distinguish "escaping works" from "escaping was silently disabled."
+
+**(B) `test_topology_tooltip_bold_marker_round_trips` — "the `<b>` wrapper was silently stripped".**
+This is the mode-A RED the bold-marker test needs, and it is a *different* regression from (A): here
+escaping still works, but the `<b>…</b>` wrapper is gone from the tooltip entirely.
+```python
+# The wrapper is absent — no <b>, no \\u003cb\\u003e, no &lt;b&gt;, nothing.
+broken_html_stripped = '"title": "Sprat\\u003cbr\\u003eBiomass: 10.0", "label": "Sprat"'
+
+# OLD bold-marker assertion — the ONLY thing it checks:
+assert '&amp;lt;b&amp;gt;' not in broken_html_stripped   # True -> OLD TEST PASSES
+print("OLD bold-marker assertion PASSES on output with the <b> wrapper stripped -> vacuous")
+
+# NEW bold-marker assertions against the same string:
+assert '\\u003cb\\u003eSprat\\u003c/b\\u003e' not in broken_html_stripped   # the NEW `in` assertion FAILS
+print("NEW bold-marker assertion FAILS on that output -> not vacuous")
+```
+Expected output: all four `print` lines, no `AssertionError`. This is the proof that both old tests
+pass in exactly the state they claim to guard against, while both new tests fail there.
 
 - [ ] **Step 3: (no production change — test-only task)**
 The Step 1 test bodies above are final; `create_topology_network`/`generate_html()` already produce the correct escaped forms (verified above).
@@ -2025,7 +2151,7 @@ Temporarily edit `network_analysis.py:307-314`, swapping which degree array feed
 Run: `micromamba run -n shiny python -m pytest test_network_analysis.py::test_node_weighted_indicators -v` with the **OLD** test body (quoted above).
 Expected: PASSES — on the linear chain, this swap still yields `nwG=nwV=1.0` (symmetric fixture — every node has total in+out degree the same shape), and both remain `> 0`.
 Now run the new `test_node_weighted_indicators` and `test_node_weighted_indicators_omnivory_pinned` from Step 1 against the same swapped code.
-Expected: the omnivory test FAILS — the swap changes `nwG` from `100/75` to `250/75` and `nwV` from `250/150` to `100/150`, so the pinned `np.isclose` assertions raise.
+Expected: the omnivory test FAILS — the swap exchanges the whole quotient, denominator included: `nwG` goes from `100/75` to `250/150` and `nwV` from `250/150` to `100/75`, so the pinned `np.isclose` assertions raise.
 Revert the temporary `network_analysis.py` edit before continuing.
 
 - [ ] **Step 3: (no production change — test-only task)**
@@ -2033,7 +2159,7 @@ The Step 1 test bodies above are final; `get_node_weighted_indicators` already c
 
 - [ ] **Step 4: Run + full suite**
 Run: `micromamba run -n shiny python -m pytest test_network_analysis.py -k node_weighted_indicators -v` then `micromamba run -n shiny python -m pytest`
-Expected: PASS; 135 passed (adds one new test function), suite green.
+Expected: PASS — this task adds one new test function; the suite total is the 133-test baseline plus every test added so far (cumulative; do not expect an exact number). Only the 3 known `network_analysis.py` UserWarnings (lines 122, 134, 186); any other warning is a defect.
 
 - [ ] **Step 5: Commit**
 ```bash
@@ -2177,7 +2303,7 @@ git commit -m "test: AST cache guard catches attribute calls and asserts full RE
 - Test: same file
 
 **Interfaces:**
-- Consumes: `load_data.load_baltic_data(base_dir: Path | None = None)` — the `base_dir` keyword is added by Phase 1 Task 1.2 (`load_data.py:25-33` region); this task assumes Phase 1 has already landed, per the plan's build order (Phases 1→6 in sequence).
+- Consumes: `load_data.load_baltic_data(base_dir: Path | None = None)` — the `base_dir` keyword is added by Task 1 (`1.2`) (`load_data.py:25-33` region); this task assumes Phase 1 has already landed, per the plan's build order (Phases 1→6 in sequence).
 - Produces: nothing
 
 The existing test in this file, `test_load_baltic_data_node_ids_are_species_names` (`test_load_data_alignment.py:5-12`), skips unless the TRACKED `BalticFW_network.graphml` is present, and per the design spec, the tracked GraphML's node order already equals the tracked CSV's row order — so the reindex branch at `load_data.py:65-66`:
@@ -2262,7 +2388,7 @@ git commit -m "test: prove load_baltic_data's reindex branch reorders a shuffled
 
 - [ ] **Step 1: Full suite**
 Run: `micromamba run -n shiny python -m pytest`
-Expected: all tests pass (baseline 133 + 3 new test functions from Tasks 14, 19, 20 = 136+; exact count depends on how many net-new `def test_...` were added across Tasks 14-21 — verify no unexpected failures or new warnings beyond the 3 known `network_analysis.py` UserWarnings).
+Expected: all tests pass — the 133-test baseline plus every test added in Tasks 16-23 and all preceding phases (cumulative; do not expect an exact number). Only the 3 known `network_analysis.py` UserWarnings (lines 122, 134, 186); any other warning is a defect. (This phase's net-new `def test_...` come from Tasks 16, 21 and 23; Tasks 17-20 and 22 rewrite existing test bodies rather than adding functions.)
 
 - [ ] **Step 2: App still imports**
 Run: `micromamba run -n shiny python -c "import app; print('app OK')"`
@@ -2277,7 +2403,7 @@ git tag audit3-phase3
 
 # PHASE 4 — Feedback path
 
-**Spec items:** 4.1 (A4), 4.2 (A17), 4.3 (crit6). Baseline: `master` at `bf37c43`, 133 tests passing, 3 known `network_analysis.py` UserWarnings (lines 122, 134, 186) — no new warnings allowed.
+**Spec items:** 4.1 (A4), 4.2 (A17), 4.3 (crit6). Baseline: 133 tests passing, 3 known `network_analysis.py` UserWarnings (lines 122, 134, 186) — no new warnings allowed. (That 133 is the *plan-start* baseline; Phases 1-3 have already added tests by the time this phase runs, so treat every count in this phase as cumulative, per the gate wording.)
 
 **Files touched:**
 - `feedback_reporter.py` — `create_github_issue` (:99-155), `submit_feedback` (:172-219)
@@ -2333,7 +2459,7 @@ and leave the existing `color_map[group] = COLOR_SCHEME[i]` / cycling loop and t
 (line 317) unchanged — it now looks up the same coerced strings that built `color_map`, so no further edit is needed there.
 - [ ] **Step 4: Run + full suite**
 Run: `micromamba run -n shiny python -m pytest test_network_viz_render.py -v && micromamba run -n shiny python -m pytest`
-Expected: PASS; 134 tests passing (133 + this one), still 3 known UserWarnings, no new ones.
+Expected: PASS — the 133-test baseline plus every test added so far (this task adds one; cumulative — do not expect an exact number). Only the 3 known `network_analysis.py` UserWarnings (lines 122, 134, 186); any other warning is a defect.
 - [ ] **Step 5: Commit**
 ```bash
 git add network_viz.py test_network_viz_render.py
@@ -2414,7 +2540,8 @@ Claude-Session: https://claude.ai/code/session_01KKeResQLAndzvguE1xpqR6"
 ### Task 27: Server-side length caps on feedback fields + `maxlength` on the inputs (`4.2`, `A17`)
 
 **Files:**
-- Modify: `app.py:709-759` (modal inputs), `app.py:771-798` (submit handler field reads)
+- Modify: `app.py:709-759` (modal inputs)
+- Read-only reference (NOT edited here — edited in Task 29, which rewrites this function wholesale for the async change): `app.py:771-798` (submit handler field reads; line 771 is `title = (input.fb_title() or "").strip()`)
 - Test: `test_app_structure.py`
 
 **Interfaces:**
@@ -2600,11 +2727,10 @@ Expected: FAIL —
 1. `test_create_github_issue_returns_none_on_http_client_exception`: `http.client.HTTPException: malformed response` propagates out of `create_github_issue` uncaught (its except tuple at `feedback_reporter.py:150` is `(urllib.error.URLError, TimeoutError, OSError)`, which does not match).
 2. Both `submit_feedback_async` tests: `ImportError: cannot import name 'submit_feedback_async' from 'feedback_reporter'` — the function does not exist yet.
 - [ ] **Step 3: Add the exception, refactor `submit_feedback` into shared helpers, add `submit_feedback_async`**
-In `feedback_reporter.py`, add to the import block (after `import json` at line 16):
+In `feedback_reporter.py`, insert two new lines directly **above** the existing `import json` at line 16 (`import json` itself is already there and must not be duplicated; the block stays alphabetical):
 ```python
 import asyncio
 import http.client
-import json
 ```
 In `create_github_issue`, change the except clause at line 150:
 ```python
@@ -2969,7 +3095,7 @@ with:
 ```
 - [ ] **Step 4: Run + full suite**
 Run: `micromamba run -n shiny python -m pytest test_app_structure.py -v && micromamba run -n shiny python -m pytest`
-Expected: PASS; full suite green (133 pre-existing + 9 added across Tasks 20-24 = 142), still exactly 3 known UserWarnings, no new ones.
+Expected: PASS — the 133-test baseline plus every test added in Tasks 25-29 (9 in this phase) and all preceding phases (cumulative; do not expect an exact number). Only the 3 known `network_analysis.py` UserWarnings (lines 122, 134, 186); any other warning is a defect.
 - [ ] **Step 5: Commit**
 ```bash
 git add app.py test_app_structure.py
@@ -2985,7 +3111,7 @@ Claude-Session: https://claude.ai/code/session_01KKeResQLAndzvguE1xpqR6"
 
 - [ ] **Step 1: Full suite**
 Run: `micromamba run -n shiny python -m pytest`
-Expected: all tests pass (142 = 133 baseline + 9 new: Task 25 x1, Task 26 x1, Task 27 x2, Task 28 x3, Task 29 x2); exactly 3 known `network_analysis.py` UserWarnings (lines 122, 134, 186); no other warnings.
+Expected: all tests pass — the 133-test baseline plus every test added in Tasks 25-29 and all preceding phases (cumulative; do not expect an exact number). Only the 3 known `network_analysis.py` UserWarnings (lines 122, 134, 186); any other warning is a defect. (This phase's own additions are Task 25 x1, Task 26 x1, Task 27 x2, Task 28 x3, Task 29 x2 = 9.)
 - [ ] **Step 2: Import sanity**
 Run: `micromamba run -n shiny python -c "import app; print('app OK')"`
 Expected: prints `app OK` with no exception — confirms `load_default_data()` still succeeds and the rewritten feedback module imports (`submit_feedback_async`, not the now-unused `submit_feedback`) cleanly.
@@ -3243,7 +3369,8 @@ echo REACHED_AFTER_INSTALL
 '
 echo "a_exit=$?"
 
-# (b) restart_shiny_server: systemctl is absent on this dev box, confirm stderr suppressed + no abort
+# (b) restart_shiny_server: the systemctl restart cannot succeed on this dev box,
+#     confirm its stderr is suppressed + no abort
 bash -c '
 source ./deploy.sh
 IS_LOCAL_DEPLOYMENT=true; DRY_RUN=false; FORCE=false; APP_NAME=EcoNeTool
@@ -3264,7 +3391,17 @@ echo "c_exit=$?"
 ```
 - [ ] **Step 2: Run to confirm RED**
 Run the three commands in Step 1.
-Expected: FAIL (bug confirmed) — all three print their `REACHED_AFTER_*` line and exit `0`; `/tmp/restart_stderr.txt` is empty (the `command not found` from the missing `systemctl` is swallowed by `2>/dev/null`).
+Expected: FAIL (bug confirmed) — all three print their `REACHED_AFTER_*` line and exit `0`; `/tmp/restart_stderr.txt` is **empty**, because whatever the failing `sudo systemctl restart` wrote to stderr is swallowed by `2>/dev/null`.
+
+**Environment note — do not pin the assertion to a specific message.** The pass/fail criterion is
+environment-independent: *the stderr file is empty before the fix and non-empty (containing a real
+error) after it.* The actual text differs per box. On this Windows dev machine `sudo` resolves to
+`C:\WINDOWS\system32\sudo` (the Windows shim, not the Unix one), which exits `5` and writes
+`Sudo is disabled on this machine. To enable it, go to the Developer Settings page in the Settings
+app` (~138 bytes) to **stderr** — verified. It is *not* `systemctl: command not found`. What matters
+for the test is only that `sudo systemctl restart` returns non-zero (so the `else` branch runs) and
+that its stderr reaches the capture file once `2>/dev/null` is removed. On the Linux server the same
+criterion holds with a systemd error message instead.
 - [ ] **Step 3: Make each failure fatal unless `--force`; stop swallowing stderr**
 ```bash
 # lines 499-509 (install_packages)
@@ -3369,7 +3506,7 @@ echo REACHED_AFTER_VERIFY
 echo "c_exit=$?"
 bash -n deploy.sh
 ```
-Expected: PASS — none of the three print their `REACHED_AFTER_*` line, all three `_exit` values are `1`, `/tmp/restart_stderr.txt` now contains the real `systemctl: command not found` (or equivalent) text, `bash -n` silent.
+Expected: PASS — none of the three print their `REACHED_AFTER_*` line, all three `_exit` values are `1`, and `/tmp/restart_stderr.txt` is now **non-empty and contains a real error message** from the failed `sudo systemctl restart` (on this Windows dev box that text is `Sudo is disabled on this machine…`; on the Linux server it is a systemd error — assert non-emptiness, not the wording). Check it with `[ -s /tmp/restart_stderr.txt ] && echo STDERR_CAPTURED || echo STDERR_STILL_SWALLOWED`. `bash -n` silent.
 - [ ] **Step 5: Commit**
 ```bash
 git add deploy.sh
@@ -3445,7 +3582,11 @@ git commit -m "chore: delete R-era deployment/ directory, point README at DEPLOY
 - Consumes: `install_packages`, `restart_shiny_server`, `CONDA_PATH`, `CONDA_ENV_NAME`, `APP_DEPLOY_PATH`, `IS_LOCAL_DEPLOYMENT`, `DRY_RUN`, `FORCE`, `SERVER_USER`, `SERVER_HOST` — all already defined earlier in `deploy.sh`
 - Produces: `rebuild_data_pickle` (new function), invoked once from `main()`
 
-Currently `deploy.sh` transfers `BalticFW.pkl` itself (it is in `FILES`... no longer, after Task 32 — it ships whatever the developer's local pickle happens to contain, or nothing, since it's gitignored) and never runs `load_data.py` on the server. Confirmed by `grep -n "load_data" deploy.sh` today: the only hit is the `FILES` array entry `"load_data.py"` (the script itself, not an invocation) — there is no `python load_data.py` call and no function named `rebuild`/`rebuild_data_pickle` anywhere in the file.
+Currently `deploy.sh` never rebuilds the pickle on the server: the server runs on whatever `BalticFW.pkl` happened to arrive, or on none at all (it is gitignored, so a fresh clone has none).
+
+Note precisely what does and does not determine that. The `FILES` array does **not** gate what ships — `deploy.sh:60-65` says so in its own comment: *"This curated list is used ONLY for pre-flight verification … it does NOT gate what actually ships. The rsync step below mirrors the working tree wholesale (./), filtered only by EXCLUDE_PATTERNS, so any tracked file not excluded is transferred regardless of whether it appears in FILES."* So neither the current `"BalticFW.pkl"` entry nor Task 32's removal of it changes whether the pickle is transferred; what ships is whatever the developer's working tree happens to hold at rsync time (a stale local pickle, or nothing). That is exactly why the server must rebuild it from the tracked sources itself.
+
+Confirmed by `grep -n "load_data" deploy.sh` today: the only hit is the `FILES` array entry `"load_data.py"` (the script itself, not an invocation) — there is no `python load_data.py` call and no function named `rebuild`/`rebuild_data_pickle` anywhere in the file.
 
 - [ ] **Step 1: Write the failing test (RED, run now)**
 ```bash
@@ -3671,7 +3812,7 @@ git commit -m "chore: drop unused plotly/great-tables/openpyxl/xlrd/shinywidgets
 
 - [ ] **Step 1: Full pytest suite**
 Run: `micromamba run -n shiny python -m pytest`
-Expected: 133 passed (this phase touches no `.py` behavior — deploy.sh and dependency-manifest edits only), the same 3 known UserWarnings (`network_analysis.py` lines 122, 134, 186), no new warnings.
+Expected: all tests pass — the 133-test baseline plus every test added in Tasks 31-36 and all preceding phases (cumulative; do not expect an exact number). Only the 3 known `network_analysis.py` UserWarnings (lines 122, 134, 186); any other warning is a defect. (This phase itself touches no `.py` behavior — deploy.sh and dependency-manifest edits only — so the count should be unchanged from the Phase 4 gate, whatever that count was.)
 - [ ] **Step 2: App import still clean**
 Run: `micromamba run -n shiny python -c "import app; print('app OK')"`
 Expected: prints `app OK`.
@@ -3812,27 +3953,51 @@ git commit -m "fix: mount all pages once via hidden navset so inputs persist acr
 - Test: `test_app_structure.py`
 
 **Interfaces:**
-- Consumes: nothing from Task 38
-- Produces: `flux_results()` dict now carries a `'temperature'` key (in addition to the existing
-  `'flux_matrix'`, `'losses'`, `'validation'`) — Phase 2's task touching the `validation` display
-  (spec 2.2) must read/write the same dict, not replace it
+- Consumes: nothing from Task 38. **Depends on Phase 2 Task 11 having landed**, which already
+  rewrote both edit sites: it inserted the `if not validation['balanced']:` warning branch above
+  `flux_results.set({...})` and added the `balance_line` computation plus a `{balance_line}` row to
+  `flux_indicators`. This task ADDS one dict key and one panel line to Task 11's version — it does
+  not replace it. Locate both sites by the quoted text below, not by line number; Task 11's insertion
+  has already shifted everything in this region.
+- Produces: `flux_results()` dict now carries a `'temperature'` key (in addition to
+  `'flux_matrix'`, `'losses'`, `'validation'`)
 
-Today:
+The temperature the solver actually ran with is the local `temp = input.temperature()`
+(`app.py:1095` pre-Task-11), fed to `calculate_losses(...)`, but it is never recorded. As left by
+Task 11 the call site ends:
 ```python
+        if not validation['balanced']:
+            logger.warning(
+                "Flux equilibrium not balanced: max_imbalance=%.6g",
+                validation['max_imbalance'],
+            )
+            ui.notification_show(
+                f"Flux solution is not fully balanced (max imbalance "
+                f"{validation['max_imbalance']:.4g}). Results may be approximate.",
+                type="warning",
+                duration=8,
+            )
+
         flux_results.set({
             'flux_matrix': flux_matrix,
             'losses': losses,
             'validation': validation
         })
 ```
-and `flux_indicators` never mentions temperature:
+and `flux_indicators`, as left by Task 11, reports the balance verdict but never the temperature:
 ```python
+        balance_line = (
+            "  Equilibrium: BALANCED" if validation['balanced']
+            else f"  Equilibrium: NOT BALANCED (max imbalance {validation['max_imbalance']:.4g})"
+        )
+
         return f"""
 Flux-Based Indicators:
 
   Link-Weighted Connectance (lwC): {indicators['lwC']:.4f}
   Link-Weighted Generality (lwG): {indicators['lwG']:.4f}
   Link-Weighted Vulnerability (lwV): {indicators['lwV']:.4f}
+{balance_line}
         """
 ```
 A user who recalculates at a different temperature has no way to tell, from the panel, which temperature
@@ -3877,10 +4042,16 @@ def test_flux_results_records_and_displays_temperature_used():
 ```
 - [ ] **Step 2: Run to confirm RED**
 Run: `micromamba run -n shiny python -m pytest test_app_structure.py::test_flux_results_records_and_displays_temperature_used -v`
-Expected: FAIL at the `"temperature" in dict_keys` assertion — the dict literal at `app.py:1148-1152` has
-exactly the keys `{'flux_matrix', 'losses', 'validation'}` today.
-- [ ] **Step 3: Record and display it**
-`app.py:1148-1152`:
+Expected: FAIL at the `"temperature" in dict_keys` assertion — the `flux_results.set({...})` dict
+literal (Task 11's version) has exactly the keys `{'flux_matrix', 'losses', 'validation'}`.
+- [ ] **Step 3: Record and display it — add one key and one line to Task 11's version**
+
+Do NOT rewrite the surrounding block: the `if not validation['balanced']:` branch above the `set()`
+call and the `balance_line` computation in `flux_indicators` are Task 11's and stay exactly as they
+are. `temp` is the existing local in the `calculate_fluxes` effect (`temp = input.temperature()`),
+already in scope at the `set()` call.
+
+Add the `'temperature': temp` key to the existing `flux_results.set({...})` call (find it by text):
 ```python
         flux_results.set({
             'flux_matrix': flux_matrix,
@@ -3889,7 +4060,8 @@ exactly the keys `{'flux_matrix', 'losses', 'validation'}` today.
             'temperature': temp
         })
 ```
-`app.py:1164-1170`:
+Add one line to the existing `flux_indicators` f-string, above the lwC line and keeping Task 11's
+`{balance_line}` row:
 ```python
         return f"""
 Flux-Based Indicators:
@@ -3898,6 +4070,7 @@ Flux-Based Indicators:
   Link-Weighted Connectance (lwC): {indicators['lwC']:.4f}
   Link-Weighted Generality (lwG): {indicators['lwG']:.4f}
   Link-Weighted Vulnerability (lwV): {indicators['lwV']:.4f}
+{balance_line}
         """
 ```
 - [ ] **Step 4: Run + full suite**
@@ -4377,9 +4550,10 @@ In `examples/README.md`, replace lines 54-57:
 - Value = 0 means no feeding link
 - This matches the rows=prey, columns=predator convention used throughout EcoNeTool
 ```
-And replace line 73 (`5. Set feeding links (1 = eats, 0 = no link)`):
+And replace line 73 — verified current text is `4. Set feeding links (1 = eats, 0 = no link)`
+(it is the 4th item in the "Creating Your Own Dataset" list; keep the leading `4.`):
 ```
-5. Set feeding links (1 = row species is eaten by column species, 0 = no link)
+4. Set feeding links (1 = row species is eaten by column species, 0 = no link)
 ```
 - [ ] **Step 4: Run + full suite**
 Run: `micromamba run -n shiny python -m pytest test_examples_data_convention.py -v && micromamba run -n shiny python -m pytest -q`
@@ -4396,8 +4570,7 @@ git commit -m "fix: transpose example adjacency CSVs to the tracked rows=prey co
 
 - [ ] **Step 1: Full suite + import smoke**
 Run: `micromamba run -n shiny python -m pytest -v`
-Expected: all tests pass (baseline 133 plus every test added in Tasks 30-35); no new warnings beyond the
-3 known `network_analysis.py` UserWarnings.
+Expected: all tests pass — the 133-test baseline plus every test added in Tasks 38-43 and all preceding phases (cumulative; do not expect an exact number). Only the 3 known `network_analysis.py` UserWarnings (lines 122, 134, 186); any other warning is a defect.
 - [ ] **Step 2: App import smoke**
 Run: `micromamba run -n shiny python -c "import app; print('app OK')"`
 Expected: `app OK`.
@@ -4405,6 +4578,214 @@ Expected: `app OK`.
 ```bash
 git tag audit3-phase6
 ```
+
+---
+
+### Task 45: Post-Phase-6 live smoke — editor round-trip, `safe_render` panel, self-contained download (`gate`, spec L105)
+
+This is the acceptance gate for the **whole plan**: the spec's "After Phase 6: a live smoke that
+drives the Data Editor (the gap remediation #2 never closed), forces a renderer error, and downloads
+the network HTML" (`docs/superpowers/specs/2026-09-05-econetpy-audit-remediation-3-design.md:105`).
+Everything before this point is unit- or AST-level; nothing in the plan has yet started the real app
+and clicked it. Runs only after Tasks 1-44 have all landed.
+
+**Files:**
+- Create: `test_live_smoke.py` (new file — the only live/browser test in the suite)
+- Modify: `app.py` (`topological_indicators`, currently `app.py:965-984`; add an inert env-var-guarded
+  raise at the top of the function body — locate it by the `def topological_indicators():` text, not
+  by line number, since Phases 1-6 have shifted everything)
+- Modify: `environment.yml`, `requirements.txt` (declare `pytest-playwright` alongside the
+  `pytest`/`hypothesis` dev block Task 16 added)
+
+**Interfaces:**
+- Consumes: `shiny.pytest.create_app_fixture`, `shiny.playwright.controller.OutputDataFrame`
+  (verified present in this env: `set_cell(text, *, row, col, finish_key=None)`,
+  `expect_cell(value, *, row, col)`), `playwright.sync_api.Page`; `app.PAGES` menu ids
+  (`menu_editor`, `menu_topology`, `menu_network` — `app.py:372-380`, `app.py:582-587`);
+  `species_info_editor` / `update_species_info` (`app.py:363-364`); `download_network`
+  (`app.py:249`, `app.py:926`); `app._ERROR_MSG` (`app.py:56`,
+  `"This panel could not be computed — see logs."`); `app._network_download_html` (Task 14).
+- Consumes (navigation model): **Task 38 has already replaced the `@render.ui main_content` rebuild
+  with a single static `ui.navset_hidden(...)` mounting every page at once**, and the `menu_*` effects
+  now switch panels client-side. So all three target elements (`#species_info_editor`,
+  `#topological_indicators`, `#download_network`) exist in the DOM from session start; clicking the
+  menu link only reveals the panel. The menu link labels are the exact strings in `app.py:582-588`
+  (`"Food Web Network"`, `"Topological Metrics"`, `"Data Editor"` — verified).
+- Produces: nothing — terminal acceptance gate.
+
+**Shiny 1.7.0 constraint (restated):** `render.DataGrid` has NO `editable_columns`. The grid is
+built as `render.DataGrid(info, editable=True, ...)` and the species/fg columns are protected by
+`@species_info_editor.set_patch_fn` (`app.py:1355-1362`). Part (a) below therefore proves BOTH
+halves of that arrangement: an edit to `meanB` must survive `data_patched()` into
+`current_species_info`, and an edit to `species` must be reverted by the patch function.
+
+**Why an env var for part (b):** the app under test runs in its own subprocess, so the test cannot
+monkeypatch it. The trigger goes in ONE renderer body, not inside `safe_render` itself — Task 20's
+structural test inspects `safe_render`, and changing it would perturb that test. The check is inert
+whenever the variable is unset, which is every run except this one.
+
+- [ ] **Step 1: Write the failing live smoke**
+```python
+# test_live_smoke.py (new file)
+"""Post-Phase-6 live smoke. Skipped unless ECONETOOL_LIVE_SMOKE=1 so the normal
+suite (and every phase gate) stays browser-free and warning-clean."""
+import os
+import re
+
+import pytest
+
+pytest.importorskip("playwright")
+pytest.importorskip("shiny.playwright")
+
+if os.environ.get("ECONETOOL_LIVE_SMOKE") != "1":
+    pytest.skip("live smoke: set ECONETOOL_LIVE_SMOKE=1 to run", allow_module_level=True)
+
+from playwright.sync_api import Page, expect
+from shiny.playwright import controller
+from shiny.pytest import create_app_fixture
+from shiny.run import ShinyAppProc
+
+app = create_app_fixture("app.py")
+
+# species_info column order is species, fg, meanB, bodymasses, met.types, efficiencies
+COL_SPECIES = 0
+COL_MEANB = 2
+
+
+def _open_editor(page: Page, app: ShinyAppProc) -> controller.OutputDataFrame:
+    page.goto(app.url)
+    page.get_by_text("Data Editor").first.click()
+    grid = controller.OutputDataFrame(page, "species_info_editor")
+    # Wait for the grid to actually paint before touching cells; the row count is
+    # data-dependent (Baltic vs example network), so wait on the first cell.
+    expect(grid.cell_locator(row=0, col=COL_SPECIES)).to_be_visible(timeout=30_000)
+    return grid
+
+
+def test_live_species_info_edit_round_trips_through_data_patched(page: Page, app: ShinyAppProc):
+    """(a) An edit made in the DataGrid must reach current_species_info via
+    data_patched(), and an edit to a key column must be reverted by set_patch_fn."""
+    grid = _open_editor(page, app)
+
+    original = grid.cell_locator(row=0, col=COL_MEANB).inner_text().strip()
+    new_value = "12345.0"
+    assert original != new_value
+
+    grid.set_cell(new_value, row=0, col=COL_MEANB, finish_key="Enter")
+    page.get_by_role("button", name="Update Species Info").click()
+    expect(page.get_by_text("Species info updated.")).to_be_visible(timeout=15_000)
+
+    # The grid re-renders from current_species_info(); the value survives only if
+    # data_patched() -> current_species_info.set(df) actually happened.
+    grid.expect_cell(re.compile(r"12345"), row=0, col=COL_MEANB, timeout=15_000)
+
+    # set_patch_fn must refuse an edit to a key column: the cell reverts.
+    species_before = grid.cell_locator(row=0, col=COL_SPECIES).inner_text().strip()
+    grid.set_cell("NOT_A_SPECIES", row=0, col=COL_SPECIES, finish_key="Enter")
+    grid.expect_cell(species_before, row=0, col=COL_SPECIES, timeout=15_000)
+
+
+def test_live_safe_render_shows_clean_panel_not_traceback(page: Page, app: ShinyAppProc):
+    """(b) A renderer that raises must surface app._ERROR_MSG, not a traceback."""
+    page.goto(app.url)
+    page.get_by_text("Topological Metrics").first.click()
+    panel = page.locator("#topological_indicators")
+    expect(panel).to_contain_text("could not be computed", timeout=30_000)
+    assert "Traceback" not in panel.inner_text()
+    assert "ECONETOOL_FORCE_RENDER_ERROR" not in panel.inner_text()
+
+
+def test_live_downloaded_network_html_is_self_contained(page: Page, app: ShinyAppProc, tmp_path):
+    """(c) The downloaded network HTML must inline its assets — no src="lib/."""
+    page.goto(app.url)
+    page.get_by_text("Food Web Network").first.click()
+    # NOTE: ui.download_button renders an <a class="btn ... shiny-download-link">,
+    # NOT a <button> — its ARIA role is "link", so get_by_role("button", ...) does
+    # not match. Locate it by id (verified against `ui.download_button(...)` output).
+    with page.expect_download(timeout=60_000) as dl_info:
+        page.locator("#download_network").click()
+    target = tmp_path / "network.html"
+    dl_info.value.save_as(target)
+
+    html = target.read_text(encoding="utf-8", errors="replace")
+    assert 'src="lib/' not in html, 'downloaded HTML still references local lib/ assets'
+    assert 'href="lib/' not in html, 'downloaded HTML still references local lib/ assets'
+    assert "vis-network" in html, "downloaded HTML does not appear to embed the vis-network bundle"
+    # Size floor verified empirically on this pyvis fork with a 3-node network:
+    # cdn_resources="local" -> ~7.2 KB, cdn_resources="in_line" -> ~660 KB.
+    assert len(html) > 200_000, f"downloaded HTML is only {len(html)} bytes — assets not inlined"
+```
+- [ ] **Step 2: Run to confirm RED**
+Run (Git Bash):
+```bash
+ECONETOOL_LIVE_SMOKE=1 micromamba run -n shiny python -m pytest test_live_smoke.py -v
+```
+Expected: FAIL — test (b) fails: with no error injected, `topological_indicators` renders the real
+indicator block, so `expect(panel).to_contain_text("could not be computed")` times out. Tests (a)
+and (c) may already pass here (Phase 1-6 landed their fixes); (b) is the RED that gates Step 3, and
+Step 4 adds the second, mode-A RED for (c).
+- [ ] **Step 3: Add the inert error-injection hook**
+```python
+# app.py, first two lines of the topological_indicators body (locate by the
+# `def topological_indicators():` text — line numbers have shifted through
+# Phases 1-6). Inert unless the env var names this output id.
+    @output
+    @render.text
+    @safe_render("text")
+    def topological_indicators():
+        if os.environ.get("ECONETOOL_FORCE_RENDER_ERROR") == "topological_indicators":
+            raise RuntimeError("forced renderer error (live smoke)")
+        G = current_network()
+```
+`app.py` already imports `os` at module level (`import os`); if a prior task removed it, re-add it
+with the other stdlib imports. Declare the browser-test dev dependency exactly where Task 16 put
+`hypothesis` — as a conda-forge entry in the top-level `dependencies:` list of `environment.yml`
+(NOT in the `pip:` block; `pytest-playwright` is on conda-forge, and the project rule is conda-forge
+over pip):
+```yaml
+# environment.yml, immediately after Task 16's `  - hypothesis>=6.100.0`
+# and still before the existing `  - pip`
+  - pytest-playwright>=0.5.0
+```
+```
+# requirements.txt, under the "# Dev / test" comment
+pytest-playwright>=0.5.0
+```
+- [ ] **Step 4: Second RED — mode A for part (c)**
+Temporarily revert Task 14's inlining by making `download_network` yield `net.generate_html()`
+directly again (bypassing `_network_download_html`), then:
+```bash
+ECONETOOL_LIVE_SMOKE=1 micromamba run -n shiny python -m pytest \
+  test_live_smoke.py::test_live_downloaded_network_html_is_self_contained -v
+```
+Expected: FAIL — the saved file contains `src="lib/vis-9.1.2/vis-network.min.js"`, so the
+`'src="lib/' not in html` assertion raises. **Revert the temporary `app.py` edit before continuing.**
+- [ ] **Step 5: Run GREEN — all three parts**
+```bash
+ECONETOOL_FORCE_RENDER_ERROR=topological_indicators ECONETOOL_LIVE_SMOKE=1 \
+  micromamba run -n shiny python -m pytest test_live_smoke.py -v
+```
+Expected: 3 passed. Then re-run (a) and (c) with the injection variable unset, to prove the hook is
+inert:
+```bash
+ECONETOOL_LIVE_SMOKE=1 micromamba run -n shiny python -m pytest test_live_smoke.py -v \
+  -k "round_trips or self_contained"
+```
+Expected: 2 passed.
+- [ ] **Step 6: Full suite — the live smoke must be invisible to it**
+Run: `micromamba run -n shiny python -m pytest`
+Expected: all tests pass — the 133-test baseline plus every test added in Tasks 1-44 (cumulative; do
+not expect an exact number), with `test_live_smoke.py` reported as **skipped** (the module-level
+`pytest.skip` fires because `ECONETOOL_LIVE_SMOKE` is unset). Only the 3 known
+`network_analysis.py` UserWarnings (lines 122, 134, 186); any other warning — including any
+`PytestUnknownMarkWarning` — is a defect.
+- [ ] **Step 7: Commit**
+```bash
+git add test_live_smoke.py app.py environment.yml requirements.txt
+git commit -m "test: post-Phase-6 live smoke — editor round-trip, safe_render panel, self-contained download"
+```
+(No new tag: the Global Constraints allow exactly `audit3-phase1` .. `audit3-phase6`, and
+`audit3-phase6` is already placed by Task 44.)
 
 ---
 
