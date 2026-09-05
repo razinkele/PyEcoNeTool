@@ -339,6 +339,13 @@ def test_node_weighted_with_zero_biomass():
     assert 'nwC' in indicators
 
 
+def test_node_weighted_zero_biomass_no_nan():
+    """All-zero biomass must not yield silent NaN nwG/nwV."""
+    G = nx.DiGraph(); G.add_edges_from([('A', 'B'), ('B', 'C')])
+    ind = get_node_weighted_indicators(G, np.array([0.0, 0.0, 0.0]))
+    assert ind['nwG'] == 0 and ind['nwV'] == 0, ind
+
+
 # ============================================================================
 # METABOLIC LOSSES TESTS
 # ============================================================================
@@ -599,6 +606,13 @@ def test_keystoneness_type_guard_on_cached_path():
     live in calculate_keystoneness itself."""
     with pytest.raises(ValueError, match="DiGraph"):
         calculate_keystoneness(["not", "a", "graph"], np.array([1.0]), mti=np.zeros((1, 1)))
+
+
+def test_keystoneness_zero_biomass_is_undefined():
+    """All-zero biomass -> every species 'Undefined', not 'Keystone'."""
+    G = nx.DiGraph(); G.add_edges_from([(0, 1), (0, 2), (2, 3)])
+    df = calculate_keystoneness(G, np.array([0.0, 0.0, 0.0, 0.0]))
+    assert set(df['keystone_status']) == {'Undefined'}, df['keystone_status'].tolist()
 
 
 # ============================================================================

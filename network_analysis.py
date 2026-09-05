@@ -305,11 +305,13 @@ def get_node_weighted_indicators(G: nx.DiGraph, biomass: np.ndarray, trophic_lev
 
     # Node-weighted generality
     predators = in_degrees > 0
-    nwG = (np.sum((in_degrees * biomass)[predators]) / np.sum(biomass[predators])) if np.sum(predators) > 0 else 0
+    nwG = (np.sum((in_degrees * biomass)[predators]) / np.sum(biomass[predators])) \
+        if np.sum(predators) > 0 and np.sum(biomass[predators]) > 0 else 0
 
     # Node-weighted vulnerability
     prey = out_degrees > 0
-    nwV = (np.sum((out_degrees * biomass)[prey]) / np.sum(biomass[prey])) if np.sum(prey) > 0 else 0
+    nwV = (np.sum((out_degrees * biomass)[prey]) / np.sum(biomass[prey])) \
+        if np.sum(prey) > 0 and np.sum(biomass[prey]) > 0 else 0
 
     # Node-weighted mean trophic level
     finite_tl = np.isfinite(tlnodes)
@@ -543,6 +545,15 @@ def calculate_keystoneness(
     # Relative biomass p_i
     total_biomass = np.sum(biomass)
     relative_biomass = biomass / total_biomass if total_biomass > 0 else biomass
+
+    if total_biomass <= 0:
+        return pd.DataFrame({
+            'species': list(G.nodes()),
+            'overall_effect': overall_effect,
+            'relative_biomass': relative_biomass,
+            'keystoneness': np.full(len(overall_effect), np.nan),
+            'keystone_status': ['Undefined'] * len(overall_effect),
+        })
 
     # Libralato (2006) keystoneness index: KS_i = log10(eps_i * (1 - p_i))
     with np.errstate(divide="ignore", invalid="ignore"):
