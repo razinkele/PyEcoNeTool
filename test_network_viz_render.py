@@ -238,3 +238,22 @@ def test_color_overflow_warns():
         _w.simplefilter("always")
         get_functional_group_colors(groups)
     assert any("color" in str(x.message).lower() for x in caught), [str(x.message) for x in caught]
+
+
+def test_download_network_html_has_no_local_asset_references(simple_test_network):
+    """crit1: the downloaded network HTML must be self-contained - no
+    src="lib/..." reference a saved-and-reopened file's browser can't resolve.
+    Mirrors pyvis.shiny.wrapper.render_network's CDN_LOCAL -> CDN_INLINE
+    deep-copy override (pyvis/shiny/wrapper.py:260-266), applied to the
+    generate_html() path used for downloads instead of the iframe path."""
+    import importlib
+    app = importlib.import_module("app")
+    G, species, groups, biomass, colors = simple_test_network
+    net = create_topology_network(G, species, groups, biomass, colors)
+    assert net.cdn_resources == CDN_LOCAL  # precondition: builder still defaults to local
+
+    html = app._network_download_html(net)
+
+    assert 'src="lib/' not in html, "download HTML references local lib/ assets"
+    assert net.cdn_resources == CDN_LOCAL, \
+        "helper must not mutate the caller's network in place"

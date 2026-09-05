@@ -18,6 +18,7 @@ import pickle
 import time
 import functools
 import os
+import copy
 import shinyswatch
 
 # Import custom modules
@@ -83,6 +84,23 @@ def safe_render(kind):
                 return _error_element(kind)
         return wrapper
     return decorator
+
+
+def _network_download_html(net):
+    """Render a pyvis Network to a standalone HTML string for file download.
+    Mirrors pyvis.shiny.wrapper.render_network's CDN_LOCAL -> CDN_INLINE
+    deep-copy override (used there for the iframe srcdoc path): a network
+    built with cdn_resources='local' (network_viz.py's default) embeds
+    src="lib/..." references that only resolve inside this app's own
+    template directory, so a saved-and-reopened file would render blank.
+    Deep-copies before mutating cdn_resources to avoid altering the caller's
+    network (which _build_network's caches may still be holding)."""
+    from pyvis.network import CDN_LOCAL, CDN_INLINE
+    if net.cdn_resources == CDN_LOCAL:
+        net_copy = copy.deepcopy(net)
+        net_copy.cdn_resources = CDN_INLINE
+        return net_copy.generate_html()
+    return net.generate_html()
 
 
 # ============================================================================
@@ -1012,7 +1030,7 @@ Network Statistics:
             net = _build_network("flux")
         else:
             net = _build_network("topology")
-        yield net.generate_html()
+        yield _network_download_html(net)
 
     @output
     @render.plot
