@@ -98,9 +98,25 @@ def _assert_aligned(G, info):
     nodes = list(G.nodes())
     species = info['species'].tolist()
     if nodes != species:
+        divergence_idx = None
+        for i in range(min(len(nodes), len(species))):
+            if nodes[i] != species[i]:
+                divergence_idx = i
+                break
+        if divergence_idx is not None:
+            detail = (
+                f"first divergence at index {divergence_idx}: "
+                f"nodes[{divergence_idx}]={nodes[divergence_idx]!r} != "
+                f"species[{divergence_idx}]={species[divergence_idx]!r}"
+            )
+        else:
+            detail = (
+                f"lengths differ: len(nodes)={len(nodes)}, "
+                f"len(species)={len(species)} (common prefix matches)"
+            )
         raise ValueError(
             "Network nodes and species_info rows are misaligned: "
-            f"nodes={nodes[:3]}..., species={species[:3]}..."
+            f"{detail}"
         )
 
 

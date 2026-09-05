@@ -198,6 +198,39 @@ def test_assert_aligned_raises_on_node_row_mismatch():
         app._assert_aligned(G, info)
 
 
+def test_assert_aligned_message_names_first_divergence():
+    """The error message must name the actual first differing index/pair,
+    not just a truncated [:3] prefix that can look identical on both sides
+    when a long shared prefix hides the real divergence further in."""
+    import networkx as nx
+    import pandas as pd
+    import pytest
+    app = importlib.import_module("app")
+    names = ['A', 'B', 'C', 'D', 'E']
+    G = nx.DiGraph()
+    G.add_nodes_from(names)
+    # swap D/E at index 3/4 — the [:3] prefixes ('A','B','C') are identical
+    # on both sides, so a truncated-prefix message would be useless here.
+    info = pd.DataFrame({'species': ['A', 'B', 'C', 'E', 'D']})
+    with pytest.raises(ValueError, match=r"index 3.*'D'.*'E'"):
+        app._assert_aligned(G, info)
+
+
+def test_assert_aligned_message_reports_length_mismatch():
+    """When nodes/species share a common prefix but differ in length, the
+    message must report the length mismatch rather than two identical
+    truncated prefixes."""
+    import networkx as nx
+    import pandas as pd
+    import pytest
+    app = importlib.import_module("app")
+    G = nx.DiGraph()
+    G.add_nodes_from(['A', 'B', 'C'])
+    info = pd.DataFrame({'species': ['A', 'B', 'C', 'D']})
+    with pytest.raises(ValueError, match=r"len\(nodes\)=3.*len\(species\)=4"):
+        app._assert_aligned(G, info)
+
+
 def test_load_default_data_raises_on_pickle_bypassing_misaligned_reconstruction(tmp_path, monkeypatch):
     """If load_baltic_data's own reindex/raise contract were ever bypassed
     (e.g. a future refactor returns misaligned data directly), _assert_aligned
