@@ -250,3 +250,41 @@ def test_load_default_data_raises_on_pickle_bypassing_misaligned_reconstruction(
 
     with pytest.raises(ValueError, match="misalign|align"):
         app.load_default_data()
+
+
+def test_startup_except_clause_is_narrow_not_bare_exception():
+    """The module-level `try: load_default_data()` guard must not catch a
+    bare Exception — a ValueError from a real data misalignment (Task 4's
+    _assert_aligned) must abort import, not be silently swallowed into the
+    example network."""
+    tree = ast.parse(APP.read_text(encoding="utf-8"))
+    module_level_tries = [
+        n for n in tree.body if isinstance(n, ast.Try)
+    ]
+    assert module_level_tries, "expected a module-level try/except around load_default_data()"
+    handlers = module_level_tries[0].handlers
+    assert len(handlers) == 1
+    caught = handlers[0].type
+    # ast.Tuple of Name nodes for `except (FileNotFoundError, ImportError):`
+    assert isinstance(caught, ast.Tuple), ast.dump(caught)
+    names = {elt.id for elt in caught.elts if isinstance(elt, ast.Name)}
+    assert names == {"FileNotFoundError", "ImportError"}, names
+
+
+def test_using_example_network_flag_set_when_sources_absent(tmp_path, monkeypatch):
+    """USING_EXAMPLE_NETWORK must flip to True via the actual code path taken
+    when DATA_DIR holds neither a pickle nor tracked GraphML/CSV/JSON sources
+    — this is the path load_default_data() takes on 99% of fresh clones
+    without a prebuilt BalticFW.pkl, NOT the (mostly dead) module-level
+    startup except clause."""
+    app = importlib.import_module("app")
+    monkeypatch.setattr(app, 'DATA_DIR', tmp_path)  # empty: no .pkl, no sources
+    # monkeypatch (not a bare assignment) so the module flag is restored at
+    # teardown — same reason DATA_DIR above uses it. A bare assignment would
+    # leak USING_EXAMPLE_NETWORK=True into every later test in the session.
+    monkeypatch.setattr(app, 'USING_EXAMPLE_NETWORK', False)
+
+    G, info = app.load_default_data()
+
+    assert app.USING_EXAMPLE_NETWORK is True
+    assert list(G.nodes()) == info['species'].tolist()  # example network self-aligned

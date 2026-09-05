@@ -89,6 +89,7 @@ def safe_render(kind):
 # ============================================================================
 
 DATA_DIR = Path(__file__).parent
+USING_EXAMPLE_NETWORK = False
 
 
 def _assert_aligned(G, info):
@@ -161,7 +162,9 @@ def load_default_data():
         _assert_aligned(G, info)
         return G, info
     except (FileNotFoundError, ImportError) as exc:
+        global USING_EXAMPLE_NETWORK
         print(f"Baltic sources unavailable ({exc}); using example network.")
+        USING_EXAMPLE_NETWORK = True
         G, info = create_example_network()
         _assert_aligned(G, info)
         return G, info
@@ -202,13 +205,18 @@ def create_example_network():
     return G, info
 
 
-# Load data at startup
+# Load data at startup. Narrowed to the two cases load_default_data() itself
+# does not already resolve into the example network internally (this except
+# is a defensive backstop in case load_default_data ever propagates one of
+# these two): a data ValueError (misalignment, unknown met.types, ...) is a
+# bug to fix, not a fallback, and must abort import.
 try:
     network, species_info = load_default_data()
-except Exception as e:
+except (FileNotFoundError, ImportError) as e:
     print(f"Warning: Could not load default data: {e}")
     print("Using example network instead.")
     network, species_info = create_example_network()
+    USING_EXAMPLE_NETWORK = True
 
 # ============================================================================
 # CONTENT DEFINITIONS (must be defined before app_ui)
