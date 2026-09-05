@@ -493,6 +493,22 @@ def test_keystoneness_sorting(simple_linear_chain):
             "Keystoneness should be sorted descending"
 
 
+def test_keystoneness_species_column_is_name_keyed():
+    """The returned 'species' column must hold the graph's node labels (names),
+    paired correctly with each node's relative_biomass even after the descending
+    sort. Use node labels that are NOT in sorted/insertion order."""
+    G = nx.DiGraph()
+    G.add_nodes_from(['Cod', 'Sprat', 'Herring'])
+    G.add_edges_from([('Sprat', 'Cod'), ('Herring', 'Cod')])
+    biomass = np.array([5.0, 100.0, 50.0])  # Cod, Sprat, Herring (node order)
+    df = calculate_keystoneness(G, biomass)
+    assert set(df['species']) == {'Cod', 'Sprat', 'Herring'}
+    total = biomass.sum()
+    for name, bm in zip(['Cod', 'Sprat', 'Herring'], biomass):
+        row = df[df['species'] == name].iloc[0]
+        assert np.isclose(row['relative_biomass'], bm / total), (name, row['relative_biomass'])
+
+
 def test_keystoneness_classification():
     """Test keystoneness classification thresholds"""
     # Create a network where we can predict classifications
