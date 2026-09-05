@@ -1368,10 +1368,23 @@ Keystoneness Analysis Summary:
         info = current_species_info()
         return render.DataGrid(info, editable=True, width="100%")
 
+    # editable_columns= does not exist on render.DataGrid in this Shiny version
+    # (1.7.0), so protect the key columns (species/fg) from edits with a patch
+    # function instead: any edit targeting those columns is rejected by handing
+    # back the original cell value unchanged.
+    @species_info_editor.set_patch_fn
+    async def _reject_key_edits(*, patch):
+        info = current_species_info()
+        columns = list(info.columns)
+        col_name = columns[patch["column_index"]] if patch["column_index"] < len(columns) else None
+        if col_name in ("species", "fg"):
+            return info.iloc[patch["row_index"]][col_name]
+        return patch["value"]
+
     @reactive.effect
     @reactive.event(input.update_species_info)
     def _apply_species_info_edits():
-        edited = species_info_editor.data_view()  # returns original + user edits
+        edited = species_info_editor.data_patched()  # original node order + edits
         if edited is None or edited.empty:
             ui.notification_show("No edited data to apply.", type="warning", duration=4)
             return
@@ -1385,6 +1398,12 @@ Keystoneness Analysis Summary:
         if numeric_cols and df[numeric_cols].isna().any().any():
             ui.notification_show(
                 "Some numeric cells are invalid (non-numeric or blank). Fix them and retry.",
+                type="error", duration=6,
+            )
+            return
+        if len(df) != current_network().number_of_nodes():
+            ui.notification_show(
+                "Edited table row count does not match the network; not applied.",
                 type="error", duration=6,
             )
             return

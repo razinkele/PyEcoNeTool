@@ -102,3 +102,18 @@ def test_tl_method_is_single_topbar_select():
     assert re.search(r'<select[^>]*id="tl_method"', shell), "tl_method must be a <select>"
     # It is NOT left behind in the dashboard sidebar.
     assert 'id="tl_method"' not in str(app.dashboard_ui()), "tl_method still in dashboard sidebar"
+
+
+def test_editor_uses_data_patched_not_data_view():
+    """The species-info update must read data_patched() (original node order +
+    edits), not data_view() (display/sorted order) which permutes rows."""
+    src = APP.read_text(encoding="utf-8")
+    assert ".data_patched()" in src, "editor must use data_patched()"
+    assert "species_info_editor.data_view()" not in src, "data_view() reorders rows"
+
+
+def test_editor_registers_a_patch_fn():
+    """species/fg columns must be protected from edits via a registered patch fn
+    (editable_columns= does not exist on render.DataGrid in this Shiny version)."""
+    src = APP.read_text(encoding="utf-8")
+    assert "set_patch_fn" in src, "editor must register a patch fn to protect key columns"
