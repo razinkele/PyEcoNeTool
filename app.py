@@ -1333,8 +1333,15 @@ Flux-Based Indicators:
         n_dominant = (keystoneness_df['keystone_status'] == 'Dominant').sum()
         n_rare = (keystoneness_df['keystone_status'] == 'Rare').sum()
 
-        top_species = keystoneness_df.iloc[0]['species']
-        top_ks = keystoneness_df.iloc[0]['keystoneness']
+        keystone_only = keystoneness_df[keystoneness_df['keystone_status'] == 'Keystone']
+        if len(keystone_only) > 0:
+            top_label = "Top Keystone Species"
+            top_species = keystone_only.iloc[0]['species']
+            top_ks = keystone_only.iloc[0]['keystoneness']
+        else:
+            top_label = "Highest Keystoneness Index (no Keystone-status species)"
+            top_species = keystoneness_df.iloc[0]['species']
+            top_ks = keystoneness_df.iloc[0]['keystoneness']
 
         return f"""
 Keystoneness Analysis Summary:
@@ -1343,7 +1350,7 @@ Keystoneness Analysis Summary:
   Dominant Species: {n_dominant}
   Rare Species: {n_rare}
 
-  Top Keystone Species: {top_species}
+  {top_label}: {top_species}
   Keystoneness Index: {top_ks:.4f}
         """
 
@@ -1387,8 +1394,8 @@ Keystoneness Analysis Summary:
         ax.set_xlabel('Relative Biomass')
         ax.set_ylabel('Keystoneness Index')
         ax.set_title('Keystoneness vs Relative Biomass')
-        ax.axhline(y=1, color='k', linestyle='--', alpha=0.3)
-        ax.axvline(x=0.05, color='k', linestyle='--', alpha=0.3)
+        ax.axhline(y=keystoneness_df.attrs['ks_hi'], color='k', linestyle='--', alpha=0.3)
+        ax.axvline(x=keystoneness_df.attrs['bm_lo'], color='k', linestyle='--', alpha=0.3)
         ax.legend()
         ax.grid(True, alpha=0.3)
         plt.tight_layout()

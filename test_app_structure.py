@@ -432,3 +432,28 @@ def test_editor_apply_clears_flux_results_before_updating_info():
         "editor apply handler must clear flux_results"
     assert body.index("flux_results.set(None)") < body.index("current_species_info.set(df)"), \
         "flux_results must be cleared BEFORE current_species_info is updated"
+
+
+def test_keystoneness_scatter_uses_computed_thresholds_not_hardcoded():
+    """A13: draw the real Q3(KS)/Q1(biomass) cutoffs from calculate_keystoneness's
+    df.attrs, not the hardcoded axhline(y=1)/axvline(x=0.05)."""
+    src = APP.read_text(encoding="utf-8")
+    tree = ast.parse(src)
+    fn = next(n for n in ast.walk(tree)
+              if isinstance(n, ast.FunctionDef) and n.name == "keystoneness_scatter")
+    body = ast.get_source_segment(src, fn)
+    assert "attrs['ks_hi']" in body or 'attrs["ks_hi"]' in body
+    assert "attrs['bm_lo']" in body or 'attrs["bm_lo"]' in body
+    assert "axhline(y=1," not in body
+    assert "axvline(x=0.05," not in body
+
+
+def test_keystoneness_summary_only_labels_true_keystone_species():
+    """A13: 'Top Keystone Species' must come from a status=='Keystone' row, not
+    just row 0 (which can be 'Dominant' - high impact but not low biomass)."""
+    src = APP.read_text(encoding="utf-8")
+    tree = ast.parse(src)
+    fn = next(n for n in ast.walk(tree)
+              if isinstance(n, ast.FunctionDef) and n.name == "keystoneness_summary")
+    body = ast.get_source_segment(src, fn)
+    assert "keystone_status'] == 'Keystone'" in body or 'keystone_status"] == "Keystone"' in body

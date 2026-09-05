@@ -547,13 +547,16 @@ def calculate_keystoneness(
     relative_biomass = biomass / total_biomass if total_biomass > 0 else biomass
 
     if total_biomass <= 0:
-        return pd.DataFrame({
+        undefined = pd.DataFrame({
             'species': list(G.nodes()),
             'overall_effect': overall_effect,
             'relative_biomass': relative_biomass,
             'keystoneness': np.full(len(overall_effect), np.nan),
             'keystone_status': ['Undefined'] * len(overall_effect),
         })
+        undefined.attrs['ks_hi'] = np.nan
+        undefined.attrs['bm_lo'] = np.nan
+        return undefined
 
     # Libralato (2006) keystoneness index: KS_i = log10(eps_i * (1 - p_i))
     with np.errstate(divide="ignore", invalid="ignore"):
@@ -589,5 +592,9 @@ def calculate_keystoneness(
 
     # Sort by keystoneness (descending)
     results = results.sort_values('keystoneness', ascending=False).reset_index(drop=True)
+    # DataFrame.attrs survives sort_values/reset_index and every existing caller
+    # still treats the return value as a plain DataFrame.
+    results.attrs['ks_hi'] = float(ks_hi)
+    results.attrs['bm_lo'] = float(bm_lo)
 
     return results

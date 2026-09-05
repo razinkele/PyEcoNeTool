@@ -615,6 +615,34 @@ def test_keystoneness_zero_biomass_is_undefined():
     assert set(df['keystone_status']) == {'Undefined'}, df['keystone_status'].tolist()
 
 
+def test_keystoneness_returns_thresholds_as_attrs(simple_linear_chain):
+    """2.4: calculate_keystoneness must expose the Q3(KS)/Q1(biomass) thresholds
+    it computes internally so the scatter plot can draw the real cutoffs instead
+    of hardcoded 1 and 0.05. Every existing caller unpacks the return value as a
+    single DataFrame, so the thresholds ride as .attrs, not a second return value."""
+    G, info = simple_linear_chain
+    biomass = info['meanB'].values
+    df = calculate_keystoneness(G, biomass)
+    assert 'ks_hi' in df.attrs, df.attrs
+    assert 'bm_lo' in df.attrs, df.attrs
+    finite_ks = df['keystoneness'].to_numpy()
+    finite_ks = finite_ks[np.isfinite(finite_ks)]
+    q3 = float(np.quantile(finite_ks, 0.75))
+    q1 = float(np.quantile(df['relative_biomass'].to_numpy(), 0.25))
+    assert np.isclose(df.attrs['ks_hi'], q3)
+    assert np.isclose(df.attrs['bm_lo'], q1)
+
+
+def test_keystoneness_zero_biomass_attrs_are_present_and_nan():
+    """The total_biomass<=0 early-return path must still set ks_hi/bm_lo (as
+    NaN) so a caller reading df.attrs unconditionally doesn't KeyError."""
+    G = nx.DiGraph(); G.add_edges_from([(0, 1), (0, 2), (2, 3)])
+    df = calculate_keystoneness(G, np.array([0.0, 0.0, 0.0, 0.0]))
+    assert 'ks_hi' in df.attrs and 'bm_lo' in df.attrs
+    assert np.isnan(df.attrs['ks_hi'])
+    assert np.isnan(df.attrs['bm_lo'])
+
+
 # ============================================================================
 # INTEGRATION TESTS
 # ============================================================================
