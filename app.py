@@ -222,7 +222,21 @@ except (FileNotFoundError, ImportError) as e:
 # CONTENT DEFINITIONS (must be defined before app_ui)
 # ============================================================================
 
-dashboard_ui = lambda: ui.layout_sidebar(
+def dashboard_ui():
+    banner = (
+        ui.div(
+            "Showing a synthetic example network — the Baltic data sources "
+            "were unavailable at startup. See server logs for details.",
+            class_="econetpy-example-network-banner",
+            style=(
+                "background:#fff3cd; color:#664d03; border:1px solid #ffecb5; "
+                "border-radius:6px; padding:10px 16px; margin-bottom:12px; "
+                "font-weight:600;"
+            ),
+        )
+        if USING_EXAMPLE_NETWORK else None
+    )
+    layout = ui.layout_sidebar(
         ui.sidebar(
             ui.h4("EcoNeTool"),
             ui.p("Interactive Food Web Analysis"),
@@ -275,6 +289,7 @@ dashboard_ui = lambda: ui.layout_sidebar(
             width=1/3
         )
     )
+    return ui.div(banner, layout) if banner is not None else layout
 
 network_ui = lambda: ui.layout_sidebar(
         ui.sidebar(

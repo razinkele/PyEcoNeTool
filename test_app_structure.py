@@ -288,3 +288,29 @@ def test_using_example_network_flag_set_when_sources_absent(tmp_path, monkeypatc
 
     assert app.USING_EXAMPLE_NETWORK is True
     assert list(G.nodes()) == info['species'].tolist()  # example network self-aligned
+
+
+def test_dashboard_banner_shown_when_using_example_network(monkeypatch):
+    """dashboard_ui() must render a visible banner element when the module
+    flag says the example network is in use — not merely a stdout print.
+
+    NOTE: dashboard_ui() returns a shiny.ui._card.CardItem; bare str() on it
+    yields its object repr ('<shiny.ui._card.CardItem object at 0x...>'), NOT
+    rendered HTML (this is why the existing test_tl_method_is_single_topbar_select
+    at test_app_structure.py:93 only ever checks *absence* of a substring — it
+    would pass whether or not the string is really rendered). Render properly
+    via htmltools.TagList(...) so the assertion actually inspects markup.
+    """
+    import htmltools
+    app = importlib.import_module("app")
+    monkeypatch.setattr(app, 'USING_EXAMPLE_NETWORK', True)
+    html = str(htmltools.TagList(app.dashboard_ui()))
+    assert "example network" in html.lower()
+
+
+def test_dashboard_banner_absent_when_using_real_data(monkeypatch):
+    import htmltools
+    app = importlib.import_module("app")
+    monkeypatch.setattr(app, 'USING_EXAMPLE_NETWORK', False)
+    html = str(htmltools.TagList(app.dashboard_ui()))
+    assert "example network" not in html.lower()
