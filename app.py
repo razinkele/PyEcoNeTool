@@ -1034,7 +1034,9 @@ Network Statistics:
             ax=ax,
             square=True
         )
-        ax.set_title("Food Web Adjacency Matrix\n(Rows = Predators, Columns = Prey)")
+        ax.set_title("Food Web Adjacency Matrix\n(Rows = Prey, Columns = Predators)")
+        ax.set_xlabel("Predator")
+        ax.set_ylabel("Prey")
         plt.xticks(rotation=90, ha='right')
         plt.yticks(rotation=0)
         plt.tight_layout()
@@ -1282,7 +1284,9 @@ Flux-Based Indicators:
             ax=ax,
             square=True
         )
-        ax.set_title("Energy Flux Matrix (log-transformed)\n(Rows = Predators, Columns = Prey)")
+        ax.set_title("Energy Flux Matrix (log-transformed)\n(Rows = Prey, Columns = Predators)")
+        ax.set_xlabel("Predator")
+        ax.set_ylabel("Prey")
         plt.xticks(rotation=90, ha='right')
         plt.yticks(rotation=0)
         plt.tight_layout()

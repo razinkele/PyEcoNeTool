@@ -384,3 +384,16 @@ def test_apply_species_info_edits_validates_met_types_and_alignment():
     calls = _calls_in(target)
     assert "validate_met_types" in calls, calls
     assert "_assert_aligned" in calls, calls
+
+
+def test_adjacency_and_flux_heatmap_titles_state_correct_matrix_orientation():
+    """A10: nx.to_numpy_array(G, nodelist=species)[i,j] is the edge species[i]->species[j],
+    and edges run prey->predator (app.py:1107's own comment, app.py:139's own comment), so
+    row i is prey and column j is predator. Both heatmap titles currently say the opposite,
+    and neither sets an explicit xlabel/ylabel."""
+    src = APP.read_text(encoding="utf-8")
+    assert "Food Web Adjacency Matrix\\n(Rows = Prey, Columns = Predators)" in src
+    assert "Energy Flux Matrix (log-transformed)\\n(Rows = Prey, Columns = Predators)" in src
+    assert "(Rows = Predators, Columns = Prey)" not in src
+    assert src.count('ax.set_xlabel("Predator")') == 2
+    assert src.count('ax.set_ylabel("Prey")') == 2
