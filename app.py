@@ -1229,6 +1229,17 @@ Node-Weighted Network Indicators:
             biomass,
             bioms_losses=bioms_losses_flag
         )
+        if not validation['balanced']:
+            logger.warning(
+                "Flux equilibrium not balanced: max_imbalance=%.6g",
+                validation['max_imbalance'],
+            )
+            ui.notification_show(
+                f"Flux solution is not fully balanced (max imbalance "
+                f"{validation['max_imbalance']:.4g}). Results may be approximate.",
+                type="warning",
+                duration=8,
+            )
 
         flux_results.set({
             'flux_matrix': flux_matrix,
@@ -1244,7 +1255,12 @@ Node-Weighted Network Indicators:
             return "Click 'Calculate Fluxes' to compute energy fluxes."
 
         flux_matrix = flux_results()['flux_matrix']
+        validation = flux_results()['validation']
         indicators = calculate_flux_indicators(flux_matrix, loop=False)
+        balance_line = (
+            "  Equilibrium: BALANCED" if validation['balanced']
+            else f"  Equilibrium: NOT BALANCED (max imbalance {validation['max_imbalance']:.4g})"
+        )
 
         return f"""
 Flux-Based Indicators:
@@ -1252,6 +1268,7 @@ Flux-Based Indicators:
   Link-Weighted Connectance (lwC): {indicators['lwC']:.4f}
   Link-Weighted Generality (lwG): {indicators['lwG']:.4f}
   Link-Weighted Vulnerability (lwV): {indicators['lwV']:.4f}
+{balance_line}
         """
 
     @output

@@ -397,3 +397,22 @@ def test_adjacency_and_flux_heatmap_titles_state_correct_matrix_orientation():
     assert "(Rows = Predators, Columns = Prey)" not in src
     assert src.count('ax.set_xlabel("Predator")') == 2
     assert src.count('ax.set_ylabel("Prey")') == 2
+
+
+def test_flux_effect_warns_on_unbalanced_equilibrium():
+    """A11: validate_flux_equilibrium's verdict must reach the user - a
+    logger.warning plus a warning notification when validation['balanced'] is
+    False - not sit unused in flux_results()['validation']."""
+    src = APP.read_text(encoding="utf-8")
+    assert "if not validation['balanced']:" in src, \
+        "flux effect never branches on the equilibrium verdict"
+    branch = src.split("if not validation['balanced']:", 1)[1][:400]
+    assert "logger.warning(" in branch
+    assert 'type="warning"' in branch
+
+
+def test_flux_indicators_panel_reports_balance_status():
+    """The flux indicators text panel must show the equilibrium verdict, not
+    just the lwC/lwG/lwV numbers."""
+    src = APP.read_text(encoding="utf-8")
+    assert "Equilibrium:" in src
