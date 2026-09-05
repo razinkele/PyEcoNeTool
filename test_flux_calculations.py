@@ -606,6 +606,15 @@ def test_validate_flux_equilibrium_flags_nonfinite():
     assert not np.isfinite(r['max_imbalance']), r
 
 
+def test_fluxing_pred_level_basal_grounding():
+    """Pred-level efficiency with a basal e=0 must ground the basal node (no
+    singular matrix). Chain 0->1->2, e=[0,0.6,0.7]."""
+    mat = np.array([[0, 1, 0], [0, 0, 1], [0, 0, 0]])
+    losses = np.array([0.1, 0.5, 1.0]); e = np.array([0.0, 0.6, 0.7])
+    flux = fluxing(mat=mat, losses=losses, efficiencies=e, ef_level="pred")
+    assert np.all(np.isfinite(flux)) and flux[0, 1] > 0, flux
+
+
 if __name__ == "__main__":
     # Run tests with pytest
     pytest.main([__file__, '-v', '--tb=short'])

@@ -5,6 +5,7 @@ This module handles the conversion from R's visNetwork to Python's PyVis,
 creating interactive network visualizations for food web analysis.
 """
 
+import warnings
 import networkx as nx
 import numpy as np
 from pyvis.network import Network
@@ -305,6 +306,12 @@ def get_functional_group_colors(functional_groups: List[str]) -> Tuple[List[str]
         Tuple of (list of colors for each node, dict mapping group name to color)
     """
     unique_groups = sorted(list(set(functional_groups)))
+
+    if len(unique_groups) > len(COLOR_SCHEME):
+        warnings.warn(
+            f"{len(unique_groups)} functional groups exceed the {len(COLOR_SCHEME)} "
+            "colors in COLOR_SCHEME; colors will be reused (cycled) across groups."
+        )
 
     # Create color mapping
     color_map = {}

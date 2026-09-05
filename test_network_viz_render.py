@@ -206,3 +206,13 @@ def test_topology_builder_accepts_passed_tl(viz_graph):
     by_label = {n['label']: n for n in net.nodes}
     assert np.isclose(by_label['Sprat']['y'], 0.0)
     assert np.isclose(by_label['Cod']['y'], 100.0)
+
+
+def test_color_overflow_warns():
+    import warnings as _w
+    from network_viz import get_functional_group_colors
+    groups = [f"g{i}" for i in range(len(__import__('network_analysis').COLOR_SCHEME) + 2)]
+    with _w.catch_warnings(record=True) as caught:
+        _w.simplefilter("always")
+        get_functional_group_colors(groups)
+    assert any("color" in str(x.message).lower() for x in caught), [str(x.message) for x in caught]

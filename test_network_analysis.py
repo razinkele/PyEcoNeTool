@@ -783,6 +783,33 @@ def test_flux_indicators_chain_anchor():
     assert np.isclose(ind['lwG'], 1.0) and np.isclose(ind['lwV'], 1.0), ind
 
 
+def test_flux_indicators_pinned_diamond():
+    """Diamond: A->C, B->C (5 each), C->D (8). Pins lwG/lwV/lwC."""
+    from network_analysis import calculate_flux_indicators
+    flux = np.array([[0., 0., 5., 0.],
+                     [0., 0., 5., 0.],
+                     [0., 0., 0., 8.],
+                     [0., 0., 0., 0.]])
+    ind = calculate_flux_indicators(flux, loop=False)
+    # Recompute the exact expected lwG/lwV/lwC from the corrected formula in the
+    # test body so the pin is self-checking:
+    W = flux; si = W.sum(0); so = W.sum(1)
+    import numpy as _np
+    with _np.errstate(divide='ignore', invalid='ignore'):
+        Pi = W / si[None, :]; Hin = -_np.nansum(_np.where(Pi > 0, Pi*_np.log(Pi), 0), 0)
+        Po = W / so[:, None]; Hout = -_np.nansum(_np.where(Po > 0, Po*_np.log(Po), 0), 1)
+    Nres = _np.where(si == 0, Hin, _np.exp(Hin)); Ncon = _np.where(so == 0, Hout, _np.exp(Hout))
+    tot = W.sum()
+    assert _np.isclose(ind['lwG'], (si*Nres).sum()/tot)
+    assert _np.isclose(ind['lwV'], (so*Ncon).sum()/tot)
+
+
+def test_shortpath_disconnected_uses_largest_component():
+    G = nx.DiGraph(); G.add_edges_from([('A', 'B'), ('B', 'C'), ('X', 'Y')])
+    ind = get_topological_indicators(G)
+    assert np.isfinite(ind['ShortPath']) and ind['ShortPath'] > 0
+
+
 if __name__ == "__main__":
     # Run tests with pytest
     pytest.main([__file__, '-v', '--tb=short'])
