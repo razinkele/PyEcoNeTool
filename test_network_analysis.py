@@ -707,17 +707,30 @@ def test_trophic_levels_chain_unchanged():
     seed=st.integers(min_value=0, max_value=10_000),
 )
 def test_keystoneness_ranking_invariant_to_log_base(n, seed):
-    """The keystoneness *ordering* must not depend on log base (log is
-    monotonic). Build a random acyclic web (strict upper-triangular adjacency)
-    so it is always a valid, feasible food web."""
+    """The keystoneness ranking must match an INDEPENDENTLY computed reference
+    ranking (Libralato KS = log10(overall_effect * (1 - relative_biomass)),
+    descending) with species identity intact -- not merely be internally
+    self-consistent with whatever order sort_values produced."""
+    from network_analysis import calculate_mti
     rng = np.random.default_rng(seed)
     A = np.triu(rng.integers(0, 2, size=(n, n)), k=1)
     G = nx.from_numpy_array(A, create_using=nx.DiGraph)
     biomass = rng.uniform(1.0, 100.0, size=n)
+
+    MTI = calculate_mti(G)
+    overall_effect = np.sqrt(np.sum(MTI ** 2, axis=0))
+    relative_biomass = biomass / np.sum(biomass)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        ref_ks = np.log10(overall_effect * (1.0 - relative_biomass))
+    ref_ks[~np.isfinite(ref_ks)] = np.nan
+    nodes = list(G.nodes())
+    finite_idx = [i for i in range(n) if np.isfinite(ref_ks[i])]
+    expected_order = [nodes[i] for i in sorted(finite_idx, key=lambda i: -ref_ks[i])]
+
     df = calculate_keystoneness(G, biomass)
-    ks = df['keystoneness'].values
-    finite = ks[np.isfinite(ks)]
-    assert np.all(np.diff(finite) <= 1e-9), finite  # df is returned sorted desc
+    finite_df = df[df['keystoneness'].notna()]
+    assert list(finite_df['species']) == expected_order, \
+        (list(finite_df['species']), expected_order)
 
 
 def test_shortpath_narrowed_except_warns_not_swallows(monkeypatch):
