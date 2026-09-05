@@ -74,20 +74,24 @@ def test_safe_render_passthrough_on_success():
 
 
 def test_safe_render_below_render_text_order():
-    """@safe_render must work BELOW @render.text (render wraps the safe wrapper)."""
+    """@safe_render must work BELOW @render.text (render wraps the safe
+    wrapper). Actually invokes the stacked-decorated function's underlying
+    callable -- not merely checks that decoration succeeds."""
+    import asyncio
     from shiny import render
     app = importlib.import_module("app")
+
     @render.text
     @app.safe_render("text")
     def boom():
         raise RuntimeError("x")
-    # Stacking @render.text above @safe_render must not raise at decoration time.
-    # Invoking the safe-wrapped raw function directly must swallow the error and
-    # return the uniform marker rather than propagating the RuntimeError.
-    @app.safe_render("text")
-    def raw_boom():
-        raise RuntimeError("x")
-    assert "could not be computed" in raw_boom().lower()
+
+    # boom is a shiny Renderer; its wrapped callable lives at .fn (an
+    # AsyncValueFn). Invoking it must swallow the RuntimeError raised inside
+    # the safe_render-wrapped body and return the uniform marker -- proving
+    # the two decorators are stacked in the correct order.
+    result = asyncio.run(boom.fn())
+    assert "could not be computed" in result.lower()
 
 
 def test_tl_method_is_single_topbar_select():
