@@ -133,3 +133,51 @@ def test_logging_configured():
     src = APP.read_text(encoding="utf-8")
     assert "logging.basicConfig(" in src
     assert "ECONETPY_LOG_LEVEL" in src
+
+
+EXPECTED_PAGES = {
+    "dashboard": ("menu_dashboard", "dashboard_ui"),
+    "network": ("menu_network", "network_ui"),
+    "topology": ("menu_topology", "topology_ui"),
+    "biomass": ("menu_biomass", "biomass_ui"),
+    "fluxes": ("menu_fluxes", "fluxes_ui"),
+    "keystoneness": ("menu_keystoneness", "keystoneness_ui"),
+    "editor": ("menu_editor", "editor_ui"),
+}
+
+
+def test_pages_registry_maps_keys_to_menu_ids_and_builders():
+    """A single ordered PAGES registry (module-level) must map each of the 7
+    navigable page keys to its (menu_input_id, ui_builder) pair, replacing the
+    old duplicated per-page menu effects and if/elif dispatch chain."""
+    tree = ast.parse(APP.read_text(encoding="utf-8"))
+    pages_assign = None
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign) and any(
+            isinstance(t, ast.Name) and t.id == "PAGES" for t in node.targets
+        ):
+            pages_assign = node
+            break
+    assert pages_assign is not None, "no module-level PAGES = {...} assignment found"
+    assert isinstance(pages_assign.value, ast.Dict), "PAGES must be a dict literal"
+
+    found = {}
+    for key_node, val_node in zip(pages_assign.value.keys, pages_assign.value.values):
+        assert isinstance(key_node, ast.Constant) and isinstance(key_node.value, str)
+        assert isinstance(val_node, ast.Tuple) and len(val_node.elts) == 2
+        menu_node, builder_node = val_node.elts
+        assert isinstance(menu_node, ast.Constant) and isinstance(menu_node.value, str)
+        assert isinstance(builder_node, ast.Name)
+        found[key_node.value] = (menu_node.value, builder_node.id)
+
+    assert found == EXPECTED_PAGES
+
+    app = importlib.import_module("app")
+    assert app.PAGES.keys() == EXPECTED_PAGES.keys()
+    for key, (menu_id, builder_name) in EXPECTED_PAGES.items():
+        registered_menu_id, builder = app.PAGES[key]
+        assert registered_menu_id == menu_id
+        assert builder is getattr(app, builder_name)
+
+    # named module attributes preserved (a downstream test calls app.dashboard_ui())
+    assert app.dashboard_ui() is not None

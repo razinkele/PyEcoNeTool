@@ -367,6 +367,19 @@ editor_ui = lambda: ui.layout_columns(
     )
 
 
+# Ordered registry of the 7 navigable pages: page_key -> (menu_input_id, ui_builder).
+# menu_feedback is deliberately excluded - it opens a modal, not a page.
+PAGES = {
+    "dashboard": ("menu_dashboard", dashboard_ui),
+    "network": ("menu_network", network_ui),
+    "topology": ("menu_topology", topology_ui),
+    "biomass": ("menu_biomass", biomass_ui),
+    "fluxes": ("menu_fluxes", fluxes_ui),
+    "keystoneness": ("menu_keystoneness", keystoneness_ui),
+    "editor": ("menu_editor", editor_ui),
+}
+
+
 # ============================================================================
 # UI DEFINITION - CLEAN LEFT MENU + RIGHT CONTENT LAYOUT
 # ============================================================================
@@ -679,40 +692,15 @@ def server(input, output, session):
     # MENU CLICK HANDLERS - Simple page switching
     # ========================================================================
 
-    @reactive.effect
-    @reactive.event(input.menu_dashboard)
-    def _():
-        current_page.set("dashboard")
+    def _make_menu_effect(page_key, menu_input_id):
+        @reactive.effect
+        @reactive.event(getattr(input, menu_input_id))
+        def _():
+            current_page.set(page_key)
+        return _
 
-    @reactive.effect
-    @reactive.event(input.menu_network)
-    def _():
-        current_page.set("network")
-
-    @reactive.effect
-    @reactive.event(input.menu_topology)
-    def _():
-        current_page.set("topology")
-
-    @reactive.effect
-    @reactive.event(input.menu_biomass)
-    def _():
-        current_page.set("biomass")
-
-    @reactive.effect
-    @reactive.event(input.menu_fluxes)
-    def _():
-        current_page.set("fluxes")
-
-    @reactive.effect
-    @reactive.event(input.menu_keystoneness)
-    def _():
-        current_page.set("keystoneness")
-
-    @reactive.effect
-    @reactive.event(input.menu_editor)
-    def _():
-        current_page.set("editor")
+    for _page_key, (_menu_input_id, _builder) in PAGES.items():
+        _make_menu_effect(_page_key, _menu_input_id)
 
     # ========================================================================
     # FEEDBACK MODAL (bug reports + suggestions)
@@ -855,24 +843,8 @@ def server(input, output, session):
     @output
     @render.ui
     def main_content():
-        page = current_page()
-
-        if page == "dashboard":
-            return dashboard_ui()
-        elif page == "network":
-            return network_ui()
-        elif page == "topology":
-            return topology_ui()
-        elif page == "biomass":
-            return biomass_ui()
-        elif page == "fluxes":
-            return fluxes_ui()
-        elif page == "keystoneness":
-            return keystoneness_ui()
-        elif page == "editor":
-            return editor_ui()
-        else:
-            return dashboard_ui()
+        _, builder = PAGES.get(current_page(), ("", dashboard_ui))
+        return builder()
 
     # ========================================================================
     # DASHBOARD TAB
