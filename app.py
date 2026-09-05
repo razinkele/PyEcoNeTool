@@ -142,25 +142,43 @@ def load_default_data():
         # Trusted local cache: this .pkl is produced by load_data.save_to_pickle
         # from the project's own tracked GraphML/CSV/JSON, never fetched from
         # an external/untrusted source, so pickle.load here is safe.
-        with open(data_file, 'rb') as f:
-            data = pickle.load(f)
-        if not (isinstance(data, dict) and {'network', 'info'} <= set(data.keys())):
-            print("BalticFW.pkl missing 'network'/'info'; rebuilding from sources.")
-        else:
-            G_pkl, info_pkl = data['network'], data['info']
-            required = ['species', 'fg', 'meanB', 'bodymasses', 'met.types', 'efficiencies']
-            if (all(c in info_pkl.columns for c in required)
-                    and info_pkl['species'].tolist() == list(G_pkl.nodes())):
-                _assert_aligned(G_pkl, info_pkl)
-                return G_pkl, info_pkl
-            print("BalticFW.pkl stale/misaligned; rebuilding from sources.")
+        try:
+            with open(data_file, 'rb') as f:
+                data = pickle.load(f)
+            if not (isinstance(data, dict) and {'network', 'info'} <= set(data.keys())):
+                print("BalticFW.pkl missing 'network'/'info'; rebuilding from sources.")
+            else:
+                G_pkl, info_pkl = data['network'], data['info']
+                required = ['species', 'fg', 'meanB', 'bodymasses', 'met.types', 'efficiencies']
+                if (all(c in info_pkl.columns for c in required)
+                        and info_pkl['species'].tolist() == list(G_pkl.nodes())):
+                    _assert_aligned(G_pkl, info_pkl)
+                    return G_pkl, info_pkl
+                print("BalticFW.pkl stale/misaligned; rebuilding from sources.")
+        except (EOFError, pickle.UnpicklingError, AttributeError, ModuleNotFoundError) as exc:
+            print(f"BalticFW.pkl is unreadable ({exc}); rebuilding from sources.")
         # fall through to reconstruction
 
-    # No pickle cache — reconstruct from the tracked GraphML/CSV/JSON sources.
+    # No pickle cache (or a stale one) — reconstruct from the tracked
+    # GraphML/CSV/JSON sources.
     try:
         from load_data import load_baltic_data
         G, info = load_baltic_data(base_dir=DATA_DIR)
         _assert_aligned(G, info)
+        # Repair a stale/absent/corrupt cache once, so the next start takes
+        # the fast pickle path instead of rebuilding on every run.
+        # NOTE the handler is (OSError, ImportError), not just OSError: this
+        # `from load_data import save_to_pickle` sits INSIDE the outer
+        # `try: ... except (FileNotFoundError, ImportError)`. A narrower
+        # handler would let an ImportError from this line escape to the outer
+        # clause and silently drop the app onto the example network even
+        # though the Baltic data loaded fine. Catching it here keeps the
+        # failure local to the cache.
+        try:
+            from load_data import save_to_pickle
+            save_to_pickle(G, info, output_file=str(DATA_DIR / "BalticFW.pkl"))
+        except (OSError, ImportError) as exc:
+            print(f"Could not re-save BalticFW.pkl ({exc}); continuing without cache.")
         return G, info
     except (FileNotFoundError, ImportError) as exc:
         global USING_EXAMPLE_NETWORK

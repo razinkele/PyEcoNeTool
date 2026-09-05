@@ -252,6 +252,60 @@ def test_load_default_data_raises_on_pickle_bypassing_misaligned_reconstruction(
         app.load_default_data()
 
 
+def test_load_default_data_resaves_pickle_after_stale_fallthrough(tmp_path, monkeypatch):
+    """After the pickle is found stale/misaligned and load_default_data falls
+    through to reconstruction, it must re-save the rebuilt pickle to DATA_DIR
+    so the next start uses the fast path instead of rebuilding every time."""
+    import pickle as pkl
+    import networkx as nx
+    import pandas as pd
+    app = importlib.import_module("app")
+    monkeypatch.setattr(app, 'DATA_DIR', tmp_path)
+
+    # A stale pickle: valid schema, but info/node order do not match.
+    stale_g = nx.DiGraph(); stale_g.add_node('Cod'); stale_g.add_node('Sprat')
+    stale_info = pd.DataFrame({'species': ['Sprat', 'Cod'], 'fg': ['Fish', 'Fish'],
+                               'meanB': [1.0, 2.0], 'bodymasses': [1.0, 2.0],
+                               'met.types': ['Other', 'Other'], 'efficiencies': [0.5, 0.5]})
+    with open(tmp_path / "BalticFW.pkl", 'wb') as f:
+        pkl.dump({'network': stale_g, 'info': stale_info}, f)
+
+    rebuilt_g = nx.DiGraph(); rebuilt_g.add_node('Cod'); rebuilt_g.add_node('Sprat')
+    rebuilt_info = pd.DataFrame({'species': ['Cod', 'Sprat'], 'fg': ['Fish', 'Fish'],
+                                 'meanB': [1.0, 2.0], 'bodymasses': [1.0, 2.0],
+                                 'met.types': ['Other', 'Other'], 'efficiencies': [0.5, 0.5]})
+    monkeypatch.setattr('load_data.load_baltic_data',
+                         lambda base_dir=None: (rebuilt_g, rebuilt_info))
+
+    G, info = app.load_default_data()
+    assert list(G.nodes()) == info['species'].tolist() == ['Cod', 'Sprat']
+
+    with open(tmp_path / "BalticFW.pkl", 'rb') as f:
+        resaved = pkl.load(f)
+    assert list(resaved['network'].nodes()) == resaved['info']['species'].tolist() == ['Cod', 'Sprat']
+
+
+def test_load_default_data_survives_a_corrupt_pickle(tmp_path, monkeypatch):
+    """A truncated/corrupt BalticFW.pkl must fall through to reconstruction,
+    not raise UnpicklingError out of load_default_data() (and hence out of
+    `import app`)."""
+    import networkx as nx
+    import pandas as pd
+    app = importlib.import_module("app")
+    monkeypatch.setattr(app, 'DATA_DIR', tmp_path)
+    (tmp_path / "BalticFW.pkl").write_bytes(b"\x80\x04garbage-not-a-pickle")
+
+    rebuilt_g = nx.DiGraph(); rebuilt_g.add_node('Cod'); rebuilt_g.add_node('Sprat')
+    rebuilt_info = pd.DataFrame({'species': ['Cod', 'Sprat'], 'fg': ['Fish', 'Fish'],
+                                 'meanB': [1.0, 2.0], 'bodymasses': [1.0, 2.0],
+                                 'met.types': ['Other', 'Other'], 'efficiencies': [0.5, 0.5]})
+    monkeypatch.setattr('load_data.load_baltic_data',
+                         lambda base_dir=None: (rebuilt_g, rebuilt_info))
+
+    G, info = app.load_default_data()
+    assert list(G.nodes()) == info['species'].tolist() == ['Cod', 'Sprat']
+
+
 def test_startup_except_clause_is_narrow_not_bare_exception():
     """The module-level `try: load_default_data()` guard must not catch a
     bare Exception — a ValueError from a real data misalignment (Task 4's
