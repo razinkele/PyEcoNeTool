@@ -633,6 +633,26 @@ def test_validate_flux_equilibrium_flags_nonfinite_losses():
     assert not np.isfinite(r['max_imbalance']), r
 
 
+def test_validate_flux_equilibrium_flags_nonfinite_efficiencies():
+    """A NaN in efficiencies with an all-zero flux_matrix and zero losses must
+    also trip the guard.
+
+    Same vacuous-else-branch shape as the flux_matrix/losses NaN cases above:
+    inflows = flux_matrix.T @ efficiencies is NaN in every entry (0*nan=nan
+    propagates through the sum), so `inflows > tolerance` is False everywhere
+    (checked all-False); outflows = sum(flux, axis=1) + losses is all-zero, so
+    `abs(outflows) > tolerance` is also False. Pre-guard code falls into the
+    else branch and would silently report balanced=True / max_imbalance=0.0.
+    Extending the guard to cover `efficiencies` must catch it.
+    """
+    flux = np.zeros((3, 3))
+    losses = np.array([0.0, 0.0, 0.0])
+    e = np.array([0.5, np.nan, 0.5])
+    r = validate_flux_equilibrium(flux, losses, e)
+    assert r['balanced'] is False, r
+    assert not np.isfinite(r['max_imbalance']), r
+
+
 def test_fluxing_pred_level_basal_grounding():
     """Pred-level efficiency with a basal e=0 must ground the basal node (no
     singular matrix). Chain 0->1->2, e=[0,0.6,0.7]."""

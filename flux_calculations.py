@@ -299,7 +299,9 @@ def validate_flux_equilibrium(
             'imbalances': Vector of imbalances for each species
             'max_imbalance': Maximum absolute imbalance
     """
-    if not np.all(np.isfinite(flux_matrix)) or not np.all(np.isfinite(losses)):
+    if (not np.all(np.isfinite(flux_matrix))
+            or not np.all(np.isfinite(losses))
+            or not np.all(np.isfinite(efficiencies))):
         return {
             'balanced': False,
             'imbalances': np.full(flux_matrix.shape[0], np.nan),
