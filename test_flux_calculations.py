@@ -440,18 +440,21 @@ def test_fluxing_without_biomasses(simple_food_chain):
 
 
 def test_fluxing_with_zero_biomass():
-    """Test handling of zero biomass values"""
+    """A consumer whose only prey has zero biomass gets a preference column
+    that sums to zero (bioms_prefs weights W by prey biomass), so no energy
+    can flow from that prey. The pinned contract is an EXACTLY zero flux
+    matrix -- not merely 'finite or NaN', which any bug that returns a
+    constant NaN matrix, or a constant zero matrix from an unrelated cause,
+    would also satisfy."""
     mat = np.array([[0, 1], [0, 0]])
-    biomasses = np.array([0.0, 10.0])  # First species has zero biomass
+    biomasses = np.array([0.0, 10.0])  # First species (prey) has zero biomass
     losses = np.array([0.1, 0.5])
     efficiencies = np.array([0.5, 0.6])
 
-    # Should handle gracefully (may produce zeros or special values)
     flux_matrix = fluxing(mat, biomasses, losses, efficiencies, ef_level="prey")
 
     assert flux_matrix.shape == mat.shape
-    # Allow some flexibility in how zero biomass is handled
-    assert np.all(np.isfinite(flux_matrix) | np.isnan(flux_matrix))
+    np.testing.assert_allclose(flux_matrix, np.zeros((2, 2)))
 
 
 # ============================================================================
