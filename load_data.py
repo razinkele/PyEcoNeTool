@@ -14,17 +14,22 @@ import json
 from pathlib import Path
 
 
-def load_baltic_data():
+def load_baltic_data(base_dir: Path | None = None):
     """
     Load Baltic Food Web data from converted files.
+
+    Args:
+        base_dir: Directory holding the tracked GraphML/CSV/JSON sources.
+                  Defaults to this module's own directory (never the cwd).
 
     Returns:
         tuple: (network, species_info)
     """
+    base_dir = Path(base_dir) if base_dir is not None else Path(__file__).parent
     # Check if converted files exist
-    network_file = Path("BalticFW_network.graphml")
-    info_file = Path("BalticFW_species_info.csv")
-    metadata_file = Path("BalticFW_metadata.json")
+    network_file = base_dir / "BalticFW_network.graphml"
+    info_file = base_dir / "BalticFW_species_info.csv"
+    metadata_file = base_dir / "BalticFW_metadata.json"
 
     if not network_file.exists():
         raise FileNotFoundError(

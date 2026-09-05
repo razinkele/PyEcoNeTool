@@ -22,10 +22,31 @@ def test_load_baltic_data_raises_on_name_mismatch(tmp_path, monkeypatch):
                   'meanB': [1.0, 2.0], 'bodymasses': [1.0, 2.0],
                   'met.types': ['Other', 'Other'], 'efficiencies': [0.5, 0.5]}
                  ).to_csv(tmp_path / "BalticFW_species_info.csv", index=False)
-    monkeypatch.chdir(tmp_path)
     from load_data import load_baltic_data
     with pytest.raises(ValueError, match="match|align"):
-        load_baltic_data()
+        load_baltic_data(base_dir=tmp_path)
+
+
+def test_load_baltic_data_resolves_against_base_dir_not_cwd(tmp_path, monkeypatch):
+    """load_baltic_data(base_dir=tmp_path) must read tmp_path's files even
+    though cwd points somewhere else entirely — proves resolution is no
+    longer cwd-relative."""
+    other_cwd = tmp_path / "elsewhere"
+    other_cwd.mkdir()
+    monkeypatch.chdir(other_cwd)
+
+    g = nx.DiGraph()
+    g.add_node('n0', name='Cod'); g.add_node('n1', name='Sprat')
+    g.add_edge('n0', 'n1')
+    nx.write_graphml(g, tmp_path / "BalticFW_network.graphml")
+    pd.DataFrame({'species': ['Cod', 'Sprat'], 'fg': ['Fish', 'Fish'],
+                  'meanB': [1.0, 2.0], 'bodymasses': [1.0, 2.0],
+                  'met.types': ['Other', 'Other'], 'efficiencies': [0.5, 0.5]}
+                 ).to_csv(tmp_path / "BalticFW_species_info.csv", index=False)
+
+    from load_data import load_baltic_data
+    G, info = load_baltic_data(base_dir=tmp_path)
+    assert list(G.nodes()) == info['species'].tolist() == ['Cod', 'Sprat']
 
 
 def test_load_default_data_rejects_permuted_pickle(tmp_path, monkeypatch):
@@ -51,7 +72,8 @@ def test_load_default_data_rejects_permuted_pickle(tmp_path, monkeypatch):
     with open(tmp_path / "BalticFW.pkl", 'wb') as f:
         pkl.dump({'network': g, 'info': info_permuted}, f)
 
-    monkeypatch.chdir(tmp_path)
+    import app
+    monkeypatch.setattr(app, 'DATA_DIR', tmp_path)
 
     sentinel_g = nx.DiGraph(); sentinel_g.add_node('Sentinel')
     sentinel_info = pd.DataFrame({
@@ -59,9 +81,8 @@ def test_load_default_data_rejects_permuted_pickle(tmp_path, monkeypatch):
         'bodymasses': [1.0], 'met.types': ['Other'], 'efficiencies': [0.5],
     })
     monkeypatch.setattr('load_data.load_baltic_data',
-                         lambda: (sentinel_g, sentinel_info))
+                         lambda base_dir=None: (sentinel_g, sentinel_info))
 
-    import app
     G, info = app.load_default_data()
 
     # Must not return the permuted pickle data as-is; must fall through to

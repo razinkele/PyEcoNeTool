@@ -88,6 +88,9 @@ def safe_render(kind):
 # DATA LOADING
 # ============================================================================
 
+DATA_DIR = Path(__file__).parent
+
+
 def load_default_data():
     """Load the default Baltic Food Web data.
 
@@ -97,8 +100,12 @@ def load_default_data():
        _metadata.json) via load_data.load_baltic_data() — used on a fresh clone
        where the pickle is absent.
     3. A small synthetic example network, only if neither is available.
+
+    All sources resolve against DATA_DIR (this file's own directory), never
+    the process cwd, so `shiny run /path/to/app.py` from another directory
+    still finds the Baltic data.
     """
-    data_file = Path("BalticFW.pkl")
+    data_file = DATA_DIR / "BalticFW.pkl"
 
     if data_file.exists():
         # Trusted local cache: this .pkl is produced by load_data.save_to_pickle
@@ -120,7 +127,7 @@ def load_default_data():
     # No pickle cache — reconstruct from the tracked GraphML/CSV/JSON sources.
     try:
         from load_data import load_baltic_data
-        return load_baltic_data()
+        return load_baltic_data(base_dir=DATA_DIR)
     except (FileNotFoundError, ImportError) as exc:
         print(f"Baltic sources unavailable ({exc}); using example network.")
         return create_example_network()
