@@ -457,3 +457,16 @@ def test_keystoneness_summary_only_labels_true_keystone_species():
               if isinstance(n, ast.FunctionDef) and n.name == "keystoneness_summary")
     body = ast.get_source_segment(src, fn)
     assert "keystone_status'] == 'Keystone'" in body or 'keystone_status"] == "Keystone"' in body
+
+
+def test_dev_dependencies_declared_in_manifests():
+    """pytest and hypothesis (test_network_analysis.py uses @given/@settings
+    from hypothesis at its top) must be declared in BOTH environment.yml and
+    requirements.txt, or a fresh clone following either file cannot run the
+    test suite it ships."""
+    root = pathlib.Path(__file__).parent
+    env_text = (root / "environment.yml").read_text(encoding="utf-8")
+    req_text = (root / "requirements.txt").read_text(encoding="utf-8")
+    for dep in ("pytest", "hypothesis"):
+        assert dep in env_text, f"{dep} missing from environment.yml"
+        assert dep in req_text, f"{dep} missing from requirements.txt"

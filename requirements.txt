@@ -28,3 +28,7 @@ xlrd>=2.0.0      # For older Excel files
 matplotlib>=3.7.0
 seaborn>=0.12.0
 plotly>=5.14.0
+
+# Dev / test
+pytest>=8.0
+hypothesis>=6.100.0
