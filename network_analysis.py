@@ -457,6 +457,8 @@ def calculate_mti(G: nx.DiGraph) -> np.ndarray:
         raise ValueError("Input 'G' must be a NetworkX DiGraph object")
 
     n = len(G.nodes())
+    if n == 0:
+        raise ValueError("Network contains no vertices")
     nodes = list(G.nodes())
     adj_matrix = nx.to_numpy_array(G, nodelist=nodes)
 
@@ -526,6 +528,11 @@ def calculate_keystoneness(
         Libralato, S., et al. (2006). A method for identifying keystone species in
         food web models. Ecological Modelling, 195(3-4), 153-171.
     """
+    if not isinstance(G, nx.DiGraph):
+        raise ValueError("Input 'G' must be a NetworkX DiGraph object")
+    if len(G.nodes()) == 0:
+        raise ValueError("Network contains no vertices")
+
     # Calculate MTI matrix
     MTI = mti if mti is not None else calculate_mti(G)
 

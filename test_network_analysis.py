@@ -584,6 +584,23 @@ def test_keystoneness_uses_passed_mti_sentinel(simple_linear_chain):
     assert np.isclose(row0['overall_effect'], 3.0), row0['overall_effect']
 
 
+def test_mti_empty_graph_raises():
+    with pytest.raises(ValueError, match="no vertices"):
+        calculate_mti(nx.DiGraph())
+
+
+def test_keystoneness_empty_graph_raises():
+    with pytest.raises(ValueError, match="no vertices"):
+        calculate_keystoneness(nx.DiGraph(), np.array([]))
+
+
+def test_keystoneness_type_guard_on_cached_path():
+    """With mti= passed, calculate_mti is never called, so the type guard must
+    live in calculate_keystoneness itself."""
+    with pytest.raises(ValueError, match="DiGraph"):
+        calculate_keystoneness(["not", "a", "graph"], np.array([1.0]), mti=np.zeros((1, 1)))
+
+
 # ============================================================================
 # INTEGRATION TESTS
 # ============================================================================
