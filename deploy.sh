@@ -520,6 +520,39 @@ install_packages() {
   log_info "Package installation completed"
 }
 
+rebuild_data_pickle() {
+  print_header "Rebuilding Data Pickle"
+
+  if [ "$DRY_RUN" = true ]; then
+    log_info "DRY RUN MODE - Skipping pickle rebuild"
+    return 0
+  fi
+
+  log_info "Rebuilding BalticFW.pkl from source data on the server..."
+
+  local rebuild_cmd="source ${CONDA_PATH}/etc/profile.d/conda.sh && conda activate ${CONDA_ENV_NAME} && cd ${APP_DEPLOY_PATH} && python load_data.py"
+
+  if [ "$IS_LOCAL_DEPLOYMENT" = true ]; then
+    bash -c "$rebuild_cmd" || {
+      log_error "Failed to rebuild BalticFW.pkl"
+      if [ "$FORCE" != true ]; then
+        exit 1
+      fi
+      log_warn "Continuing despite failed pickle rebuild (--force)"
+    }
+  else
+    ssh "${SERVER_USER}@${SERVER_HOST}" "$rebuild_cmd" || {
+      log_error "Failed to rebuild BalticFW.pkl on server"
+      if [ "$FORCE" != true ]; then
+        exit 1
+      fi
+      log_warn "Continuing despite failed pickle rebuild (--force)"
+    }
+  fi
+
+  log_info "Data pickle rebuild completed"
+}
+
 restart_shiny_server() {
   print_header "Restarting Python Shiny App"
 
@@ -676,6 +709,7 @@ main() {
   prepare_deployment
   deploy_files
   install_packages
+  rebuild_data_pickle
   restart_shiny_server
   verify_deployment
 
