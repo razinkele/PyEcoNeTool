@@ -23,6 +23,7 @@
 # ==============================================================================
 
 set -e  # Exit on error
+set -o pipefail
 
 # ==============================================================================
 # CONFIGURATION
@@ -48,6 +49,7 @@ PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOG_DIR="${PROJECT_ROOT}/deployment_logs"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 LOG_FILE="${LOG_DIR}/deploy_${TIMESTAMP}.log"
+mkdir -p "$LOG_DIR"
 
 # Detect if running on the server
 CURRENT_HOSTNAME=$(hostname)
@@ -694,4 +696,6 @@ main() {
 # RUN MAIN FUNCTION
 # ==============================================================================
 
-main "$@"
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+  main "$@"
+fi
