@@ -114,3 +114,39 @@ def test_load_default_data_pickle_is_name_keyed():
     import app
     G, info = app.load_default_data()
     assert list(G.nodes()) == info['species'].tolist()
+
+
+def test_load_baltic_data_reindexes_shuffled_csv_to_node_order(tmp_path):
+    """CSV rows in a DIFFERENT order than the GraphML nodes, but the SAME
+    species set, must be reindexed to match node order -- proving the
+    set_index/.loc reindex branch (load_data.py:65-66) actually reorders,
+    not merely no-ops because the tracked files already happen to agree."""
+    g = nx.DiGraph()
+    g.add_node('n0', name='Cod')
+    g.add_node('n1', name='Sprat')
+    g.add_node('n2', name='Herring')
+    g.add_edge('n1', 'n0')
+    g.add_edge('n2', 'n0')
+    nx.write_graphml(g, tmp_path / "BalticFW_network.graphml")
+
+    # Same species SET as the graph's node order (Cod, Sprat, Herring), but
+    # rows written in a DIFFERENT order.
+    pd.DataFrame({
+        'species': ['Herring', 'Cod', 'Sprat'],
+        'fg': ['Fish', 'Fish', 'Fish'],
+        'meanB': [3.0, 1.0, 2.0],
+        'bodymasses': [3.0, 1.0, 2.0],
+        'met.types': ['Other', 'Other', 'Other'],
+        'efficiencies': [0.5, 0.5, 0.5],
+    }).to_csv(tmp_path / "BalticFW_species_info.csv", index=False)
+
+    from load_data import load_baltic_data
+    G, info = load_baltic_data(base_dir=tmp_path)
+
+    assert list(G.nodes()) == ['Cod', 'Sprat', 'Herring']
+    assert info['species'].tolist() == ['Cod', 'Sprat', 'Herring']
+    # The reindex must move each row's OTHER values with its species label,
+    # not merely overwrite the species column in place.
+    assert info.loc[info['species'] == 'Herring', 'meanB'].iloc[0] == 3.0
+    assert info.loc[info['species'] == 'Cod', 'meanB'].iloc[0] == 1.0
+    assert info.loc[info['species'] == 'Sprat', 'meanB'].iloc[0] == 2.0
