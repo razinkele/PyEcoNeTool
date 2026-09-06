@@ -674,3 +674,15 @@ def test_network_build_cached_independent_of_height_slider():
                     f"height= passed to the network builder at line {call.lineno} must be a fixed "
                     f"constant, not derived from input.network_height() -- got {ast.dump(kw.value)}"
                 )
+
+
+def test_biomass_plot_labels_are_areal_not_daily():
+    """meanB is a standing-stock biomass (g/km²), not a daily flux; the
+    biomass plot axis labels must not claim g/km²/day."""
+    source = APP.read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    for name in ("biomass_by_group", "biomass_distribution"):
+        fn = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == name)
+        fn_src = ast.get_source_segment(source, fn)
+        assert "g/km²/day" not in fn_src, f"{name} axis label wrongly claims a per-day flux unit"
+        assert "g/km²)" in fn_src, f"{name} axis label missing the g/km² unit"

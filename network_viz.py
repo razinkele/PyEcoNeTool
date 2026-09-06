@@ -59,7 +59,7 @@ def _add_styled_nodes(
     for i, node in enumerate(nodes):
         # Create tooltip with species information (single line HTML for PyVis)
         tl_str = f"{trophic_levels[i]:.2f}" if np.isfinite(trophic_levels[i]) else "n/a"
-        title = f"<b>{species_names[i]}</b><br>Functional Group: {functional_groups[i]}<br>Trophic Level: {tl_str}<br>Biomass: {biomass[i]:.2f} g/km²/day"
+        title = f"<b>{species_names[i]}</b><br>Functional Group: {functional_groups[i]}<br>Trophic Level: {tl_str}<br>Biomass: {biomass[i]:.2f} g/km²"
 
         # Calculate node size based on biomass
         node_size = NODE_SIZE_MIN + (biomass[i] / np.max(biomass) * NODE_SIZE_SCALE) if np.max(biomass) > 0 else NODE_SIZE_MIN

@@ -235,6 +235,23 @@ def test_topology_builder_accepts_passed_tl(viz_graph):
     assert np.isclose(by_label['Cod']['y'], 100.0)
 
 
+def test_tooltip_biomass_units_are_areal_not_daily(viz_graph):
+    """Biomass is a standing-stock areal density (g/km²), not a flux
+    (g/km²/day) -- the node tooltip must not claim a per-day unit.
+
+    generate_html() JSON-escapes non-ASCII (ensure_ascii=True, see
+    test_topology_html_safe_for_special_chars above), so "²" always
+    round-trips as the literal escape sequence \\u00b2 -- never the raw
+    glyph -- regardless of this fix; assert against that escaped form.
+    """
+    from network_viz import create_topology_network
+    G, species, groups, biomass, colors = viz_graph
+    net = create_topology_network(G, species, groups, biomass, colors)
+    html = net.generate_html()
+    assert "g/km\\u00b2/day" not in html, "biomass tooltip wrongly labeled as a per-day flux"
+    assert "g/km\\u00b2" in html, "biomass tooltip missing the g/km² unit"
+
+
 def test_color_overflow_warns():
     import warnings as _w
     from network_viz import get_functional_group_colors
