@@ -16,7 +16,14 @@ from shiny.playwright import controller
 from shiny.pytest import create_app_fixture
 from shiny.run import ShinyAppProc
 
-app = create_app_fixture("app.py", timeout_secs=60)
+# Cold start is dominated by third-party imports (seaborn, shinyswatch, matplotlib,
+# pyvis), which on a loaded machine — OneDrive sync, a CI runner, a busy laptop —
+# can take well over a minute between them even though the app itself is fine.
+# 60s proved too tight in exactly that situation, so default generously and let a
+# slower or faster environment override it rather than editing this file.
+APP_READY_TIMEOUT_SECS = float(os.environ.get("ECONETOOL_APP_READY_TIMEOUT", "300"))
+
+app = create_app_fixture("app.py", timeout_secs=APP_READY_TIMEOUT_SECS)
 
 # species_info column order is species, fg, meanB, bodymasses, met.types, efficiencies
 COL_SPECIES = 0
