@@ -17,6 +17,7 @@ from pathlib import Path
 import pickle
 import time
 import functools
+import threading
 import os
 import copy
 import shinyswatch
@@ -46,7 +47,7 @@ from network_viz import (
 )
 from pyvis.shiny import render_network
 
-from feedback_reporter import collect_system_context, submit_feedback
+from feedback_reporter import collect_system_context, submit_feedback_async
 
 import logging
 logging.basicConfig(
@@ -93,6 +94,25 @@ def _cap_feedback_text(value: str, field: str) -> str:
     """Server-side length cap for a feedback field, enforced before local save
     (client-side maxlength is a hint only)."""
     return value[: FEEDBACK_MAX_LENGTHS[field]]
+
+
+FEEDBACK_RATE_LIMIT_SECONDS = 30.0
+_feedback_rate_lock = threading.Lock()
+_feedback_last_submit_at: dict[str, float | None] = {"t": None}
+
+
+def _feedback_rate_limited(now: float) -> bool:
+    """True if a feedback submission right now would be rate-limited. Process-
+    wide (shared across all Shiny sessions in this worker), not per-session —
+    a per-session reactive.Value let each browser tab reset its own clock."""
+    with _feedback_rate_lock:
+        last = _feedback_last_submit_at["t"]
+        return last is not None and (now - last) < FEEDBACK_RATE_LIMIT_SECONDS
+
+
+def _record_feedback_submit(now: float) -> None:
+    with _feedback_rate_lock:
+        _feedback_last_submit_at["t"] = now
 
 
 def _capped_input_text(id_, label, *, placeholder=None, width=None, max_len):
@@ -786,7 +806,6 @@ def server(input, output, session):
             flux_matrix=flux_results()['flux_matrix'],
             height=height, trophic_levels=tl)
     current_page = reactive.Value("dashboard")
-    last_feedback_submit = reactive.Value(None)  # epoch seconds; rate-limit guard
 
     # ========================================================================
     # TOP BAR AND FOOTER RENDERERS
@@ -884,16 +903,15 @@ def server(input, output, session):
 
     @reactive.effect
     @reactive.event(input.fb_submit)
-    def _handle_feedback_submit():
-        # Rate limit (30s server-side)
+    async def _handle_feedback_submit():
+        # Rate limit (30s, process-wide across all sessions)
         now = time.time()
-        last = last_feedback_submit.get()
-        if last is not None and (now - last) < 30:
+        if _feedback_rate_limited(now):
             ui.notification_show("Please wait before submitting again.", type="warning", duration=4)
             return
 
-        title = (input.fb_title() or "").strip()
-        description = (input.fb_description() or "").strip()
+        title = _cap_feedback_text((input.fb_title() or "").strip(), "title")
+        description = _cap_feedback_text((input.fb_description() or "").strip(), "description")
         if not title:
             ui.notification_show("Please enter a title.", type="warning", duration=4)
             return
@@ -902,7 +920,9 @@ def server(input, output, session):
             return
 
         fb_type = input.fb_type() or "general"
-        steps = (input.fb_steps() or "").strip() if fb_type == "bug" else ""
+        steps = _cap_feedback_text(
+            (input.fb_steps() or "").strip() if fb_type == "bug" else "", "steps"
+        )
 
         # Snapshot counts; tolerate missing/invalid state
         try:
@@ -920,16 +940,17 @@ def server(input, output, session):
             browser_info = input.fb_browser_info()
         except Exception:
             browser_info = "unknown"
+        browser_info = _cap_feedback_text(browser_info or "unknown", "browser_info")
 
         context = collect_system_context(
             current_tab=current_page() or "unknown",
-            browser_info=browser_info or "unknown",
+            browser_info=browser_info,
             species_count=species_count,
             edge_count=edge_count,
         )
 
         try:
-            result = submit_feedback(
+            result = await submit_feedback_async(
                 title=title,
                 description=description,
                 type_=fb_type,
@@ -944,7 +965,7 @@ def server(input, output, session):
             ui.notification_show("Submission failed, please try again.", type="error", duration=6)
             return
 
-        last_feedback_submit.set(now)
+        _record_feedback_submit(now)
 
         if result.github_success:
             ui.notification_show(

@@ -525,3 +525,37 @@ def test_capped_text_inputs_carry_maxlength_attribute():
     assert title_tag.children[1].attrs["maxlength"] == "200"
     desc_tag = app._capped_input_text_area("fb_description", "Description", rows=5, placeholder="p", width="100%", max_len=5000)
     assert desc_tag.children[1].attrs["maxlength"] == "5000"
+
+
+def test_feedback_rate_limit_is_process_wide_not_reactive_value():
+    """The limiter must be a module-level (process-wide) clock, not a
+    reactive.Value recreated per session — two independent callers sharing
+    _feedback_last_submit_at must observe each other's submissions."""
+    app = importlib.import_module("app")
+    app._feedback_last_submit_at["t"] = None  # reset shared state before asserting
+    assert app._feedback_rate_limited(1000.0) is False
+    app._record_feedback_submit(1000.0)
+    # A second, independent "session" checking 10s later must also be blocked --
+    # this is exactly the process-wide behavior a per-session reactive.Value cannot give.
+    assert app._feedback_rate_limited(1010.0) is True
+    assert app._feedback_rate_limited(1031.0) is False
+    app._feedback_last_submit_at["t"] = None  # leave shared state clean for later tests
+
+
+def test_handle_feedback_submit_is_async_and_awaits_submit_feedback_async():
+    """The submit effect must be async (Shiny's reactive.effect auto-detects and
+    awaits an async def — verified in shiny/reactive/_reactives.py:971-973,1084)
+    so the GitHub network call (routed through asyncio.to_thread inside
+    submit_feedback_async) does not block the event loop."""
+    tree = ast.parse(APP.read_text(encoding="utf-8"))
+    target = next(
+        (n for n in ast.walk(tree)
+         if isinstance(n, ast.AsyncFunctionDef) and n.name == "_handle_feedback_submit"),
+        None,
+    )
+    assert target is not None, "_handle_feedback_submit must be declared `async def`"
+    awaited_names = {
+        n.value.func.id for n in ast.walk(target)
+        if isinstance(n, ast.Await) and isinstance(n.value, ast.Call) and isinstance(n.value.func, ast.Name)
+    }
+    assert "submit_feedback_async" in awaited_names
