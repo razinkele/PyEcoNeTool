@@ -499,13 +499,21 @@ install_packages() {
 
   if [ "$IS_LOCAL_DEPLOYMENT" = true ]; then
     bash -c "$install_cmd" || {
-      log_warn "Package installation had some issues (may need manual check)"
-      log_warn "Try manually: conda activate ${CONDA_ENV_NAME} && pip install -r ${APP_DEPLOY_PATH}/requirements.txt"
+      log_error "Package installation failed"
+      log_error "Try manually: conda activate ${CONDA_ENV_NAME} && pip install -r ${APP_DEPLOY_PATH}/requirements.txt"
+      if [ "$FORCE" != true ]; then
+        exit 1
+      fi
+      log_warn "Continuing despite failed package installation (--force)"
     }
   else
     ssh "${SERVER_USER}@${SERVER_HOST}" "$install_cmd" || {
-      log_warn "Package installation had some issues (may need manual check)"
-      log_warn "Try manually on server: conda activate ${CONDA_ENV_NAME} && pip install -r ${APP_DEPLOY_PATH}/requirements.txt"
+      log_error "Package installation failed"
+      log_error "Try manually on server: conda activate ${CONDA_ENV_NAME} && pip install -r ${APP_DEPLOY_PATH}/requirements.txt"
+      if [ "$FORCE" != true ]; then
+        exit 1
+      fi
+      log_warn "Continuing despite failed package installation (--force)"
     }
   fi
 
@@ -527,25 +535,26 @@ restart_shiny_server() {
 
   if [ "$IS_LOCAL_DEPLOYMENT" = true ]; then
     # Local restart
-    if sudo systemctl restart "${service_name}" 2>/dev/null; then
+    if sudo systemctl restart "${service_name}"; then
       log_info "Python Shiny app restarted successfully (systemctl)"
     else
-      log_warn "Could not restart Python Shiny app automatically"
-      log_warn "You may need to restart it manually with:"
+      log_error "Could not restart Python Shiny app automatically"
       echo "  sudo systemctl restart ${service_name}"
       echo ""
       log_info "Or run manually in conda environment:"
       echo "  cd ${APP_DEPLOY_PATH}"
       echo "  conda activate ${CONDA_ENV_NAME}"
       echo "  shiny run --host 0.0.0.0 --port 8000 app.py"
+      if [ "$FORCE" != true ]; then
+        exit 1
+      fi
     fi
   else
     # Remote restart via SSH
-    if ssh "${SERVER_USER}@${SERVER_HOST}" "sudo systemctl restart ${service_name}" 2>/dev/null; then
+    if ssh "${SERVER_USER}@${SERVER_HOST}" "sudo systemctl restart ${service_name}"; then
       log_info "Python Shiny app restarted successfully (systemctl)"
     else
-      log_warn "Could not restart Python Shiny app automatically"
-      log_warn "You may need to restart it manually on the server:"
+      log_error "Could not restart Python Shiny app automatically"
       echo "  ssh ${SERVER_USER}@${SERVER_HOST}"
       echo "  sudo systemctl restart ${service_name}"
       echo ""
@@ -554,6 +563,9 @@ restart_shiny_server() {
       echo "  cd ${APP_DEPLOY_PATH}"
       echo "  conda activate ${CONDA_ENV_NAME}"
       echo "  shiny run --host 0.0.0.0 --port 8000 app.py"
+      if [ "$FORCE" != true ]; then
+        exit 1
+      fi
     fi
   fi
 
@@ -605,8 +617,11 @@ verify_deployment() {
     if curl -s -f "$app_url" > /dev/null; then
       log_info "Application is accessible!"
     else
-      log_warn "Could not verify application accessibility"
-      log_warn "Please check manually: $app_url"
+      log_error "Application did not return a successful (2xx) response"
+      log_error "Please check manually: $app_url"
+      if [ "$FORCE" != true ]; then
+        exit 1
+      fi
     fi
   else
     log_info "curl not available, please check manually: $app_url"
