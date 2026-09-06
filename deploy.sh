@@ -73,7 +73,6 @@ FILES=(
   "network_analysis.py"
   "network_viz.py"
   "load_data.py"
-  "BalticFW.pkl"
   "BalticFW_metadata.json"
   "requirements.txt"
   "README.md"
@@ -309,7 +308,7 @@ check_prerequisites() {
   log_info "Checking required files..."
   local missing_files=()
   for file in "${FILES[@]}"; do
-    if [ ! -f "$file" ]; then
+    if [ ! -e "$file" ]; then
       log_warn "File not found: $file"
       missing_files+=("$file")
     fi
@@ -582,7 +581,7 @@ verify_deployment() {
   log_info "Verifying deployed files..."
   if [ "$IS_LOCAL_DEPLOYMENT" = true ]; then
     for file in "${FILES[@]}"; do
-      if [ -f "${APP_DEPLOY_PATH}/${file}" ]; then
+      if [ -e "${APP_DEPLOY_PATH}/${file}" ]; then
         echo "  ✓ $file"
       else
         log_warn "File not found: $file"
@@ -590,7 +589,7 @@ verify_deployment() {
     done
   else
     for file in "${FILES[@]}"; do
-      if ssh "${SERVER_USER}@${SERVER_HOST}" "[ -f ${APP_DEPLOY_PATH}/${file} ]"; then
+      if ssh "${SERVER_USER}@${SERVER_HOST}" "[ -e ${APP_DEPLOY_PATH}/${file} ]"; then
         echo "  ✓ $file"
       else
         log_warn "File not found on server: $file"
