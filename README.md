@@ -193,7 +193,7 @@ Edit deployment settings in `deploy.sh`:
 ## 📚 Documentation
 
 - **Format Examples**: Check the `examples/` directory
-- **Deployment Guide**: See `deployment/README.md`
+- **Deployment Guide**: See `DEPLOYMENT.md`
 
 ## 🤝 Contributing
 
