@@ -86,6 +86,27 @@ def safe_render(kind):
     return decorator
 
 
+FEEDBACK_MAX_LENGTHS = {"title": 200, "description": 5000, "steps": 5000, "browser_info": 512}
+
+
+def _cap_feedback_text(value: str, field: str) -> str:
+    """Server-side length cap for a feedback field, enforced before local save
+    (client-side maxlength is a hint only)."""
+    return value[: FEEDBACK_MAX_LENGTHS[field]]
+
+
+def _capped_input_text(id_, label, *, placeholder=None, width=None, max_len):
+    tag = ui.input_text(id_, label, placeholder=placeholder, width=width)
+    tag.children[1].attrs["maxlength"] = str(max_len)
+    return tag
+
+
+def _capped_input_text_area(id_, label, *, rows=None, placeholder=None, width=None, max_len):
+    tag = ui.input_text_area(id_, label, rows=rows, placeholder=placeholder, width=width)
+    tag.children[1].attrs["maxlength"] = str(max_len)
+    return tag
+
+
 def _network_download_html(net):
     """Render a pyvis Network to a standalone HTML string for file download.
     Mirrors pyvis.shiny.wrapper.render_network's CDN_LOCAL -> CDN_INLINE
@@ -824,20 +845,22 @@ def server(input, output, session):
                     selected="bug",
                     inline=False,
                 ),
-                ui.input_text("fb_title", "Title", placeholder="Brief summary of your feedback", width="100%"),
-                ui.input_text_area(
+                _capped_input_text("fb_title", "Title", placeholder="Brief summary of your feedback", width="100%", max_len=FEEDBACK_MAX_LENGTHS["title"]),
+                _capped_input_text_area(
                     "fb_description",
                     "Description",
                     rows=5,
                     placeholder="Please describe in detail what happened or what you would like to see improved.",
                     width="100%",
+                    max_len=FEEDBACK_MAX_LENGTHS["description"],
                 ),
-                ui.input_text_area(
+                _capped_input_text_area(
                     "fb_steps",
                     "Steps to Reproduce (bug reports only)",
                     rows=3,
                     placeholder="1. Open the Network tab\n2. Click ...\n3. Observed: ...",
                     width="100%",
+                    max_len=FEEDBACK_MAX_LENGTHS["steps"],
                 ),
                 ui.tags.small(
                     {"class": "text-muted", "style": "display:block; margin-top:8px;"},

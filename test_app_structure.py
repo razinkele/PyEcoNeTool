@@ -505,3 +505,23 @@ def test_dev_dependencies_declared_in_manifests():
     for dep in ("pytest", "hypothesis"):
         assert dep in env_text, f"{dep} missing from environment.yml"
         assert dep in req_text, f"{dep} missing from requirements.txt"
+
+
+def test_cap_feedback_text_truncates_to_field_limit():
+    app = importlib.import_module("app")
+    assert app.FEEDBACK_MAX_LENGTHS == {
+        "title": 200, "description": 5000, "steps": 5000, "browser_info": 512,
+    }
+    long_title = "x" * 250
+    assert len(app._cap_feedback_text(long_title, "title")) == 200
+    assert app._cap_feedback_text("short", "title") == "short"
+    long_desc = "y" * 6000
+    assert len(app._cap_feedback_text(long_desc, "description")) == 5000
+
+
+def test_capped_text_inputs_carry_maxlength_attribute():
+    app = importlib.import_module("app")
+    title_tag = app._capped_input_text("fb_title", "Title", placeholder="p", width="100%", max_len=200)
+    assert title_tag.children[1].attrs["maxlength"] == "200"
+    desc_tag = app._capped_input_text_area("fb_description", "Description", rows=5, placeholder="p", width="100%", max_len=5000)
+    assert desc_tag.children[1].attrs["maxlength"] == "5000"
