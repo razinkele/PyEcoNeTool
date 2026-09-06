@@ -74,7 +74,8 @@ def _add_styled_nodes(
             y=y_positions[i],
             physics=True,
             shape="dot",
-            group=functional_groups[i]
+            group=functional_groups[i],
+            fixed={'y': True}  # lock Y to trophic level; X still free for physics
         )
 
     return nodes

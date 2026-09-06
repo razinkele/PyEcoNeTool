@@ -178,6 +178,9 @@ def test_topology_node_size_and_y_position_pinned(viz_graph):
     assert np.isclose(by_label['Sprat']['y'], 0.0)
     assert np.isclose(by_label['Herring']['y'], 50.0)
     assert np.isclose(by_label['Cod']['y'], 100.0)
+    assert by_label['Sprat']['fixed'] == {'y': True}
+    assert by_label['Herring']['fixed'] == {'y': True}
+    assert by_label['Cod']['fixed'] == {'y': True}
 
 
 def test_flux_node_size_and_y_position_pinned(viz_graph):
@@ -200,6 +203,9 @@ def test_flux_node_size_and_y_position_pinned(viz_graph):
     assert np.isclose(by_label['Sprat']['y'], 0.0)
     assert np.isclose(by_label['Herring']['y'], 50.0)
     assert np.isclose(by_label['Cod']['y'], 100.0)
+    assert by_label['Sprat']['fixed'] == {'y': True}
+    assert by_label['Herring']['fixed'] == {'y': True}
+    assert by_label['Cod']['fixed'] == {'y': True}
 
 
 def test_topology_builder_nan_tl_safe(viz_graph):
