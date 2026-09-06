@@ -1,0 +1,7 @@
+# Deployment artifacts are consumed by Linux (bash, nginx, shiny-server) and
+# are scp'd verbatim from a Windows checkout. CRLF would make deploy.sh fail
+# to execute and ship \r into the server configs, so pin them to LF.
+deploy/deploy.sh        text eol=lf
+deploy/config.env*      text eol=lf
+deploy/server/*         text eol=lf
+*.sh                    text eol=lf

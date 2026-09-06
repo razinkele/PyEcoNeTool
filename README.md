@@ -164,26 +164,23 @@ The application includes the **Gulf of Riga Food Web** dataset:
 
 ### Server Deployment
 
-Use the included deployment script:
+Deployed as a Python Shiny app under Shiny Server at
+**https://laguna.ku.lt/EconetPy/**:
 
 ```bash
-# Standard deployment to laguna.ku.lt
-./deploy.sh
+# One-time: set the target host/path (gitignored)
+cp deploy/config.env.example deploy/config.env
 
-# Dry run (see what would be deployed)
-./deploy.sh --dry-run
-
-# Deploy without backup
-./deploy.sh --no-backup
+# Deploy (no sudo)
+deploy/deploy.sh
 ```
 
-### Configuration
+The script ships runtime files only, preserves the server-owned feedback log,
+rebuilds the pickle cache server-side, runs an import smoke under the server's
+interpreter, then touches `restart.txt` to reload the app's workers.
 
-Edit deployment settings in `deploy.sh`:
-- Server host
-- Server user
-- Deployment paths
-- Backup settings
+First-time server setup (creating the app dir, registering the app with
+Shiny Server and nginx) needs sudo — see **DEPLOYMENT.md**.
 
 ## 📚 Documentation
 

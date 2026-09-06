@@ -65,3 +65,15 @@ _*.py
 
 # deploy.sh run logs (created at run time by deploy.sh)
 deployment_logs/
+
+# Deploy target config (host/path are environment-specific; see deploy/config.env.example)
+deploy/config.env
+
+# Server infrastructure configs — pulled from the live host by
+# deploy/server/render-configs.sh. The site vhost maps every service, internal
+# port, admin path and auth file on the box; that must never enter this public
+# repo. Only the EconetPy-specific fragments (econetpy.*.conf) are tracked.
+deploy/server/shiny-server.conf
+deploy/server/shiny-server.conf.orig
+deploy/server/nid4ocean
+deploy/server/nid4ocean.orig
