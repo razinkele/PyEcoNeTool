@@ -1311,7 +1311,8 @@ Node-Weighted Network Indicators:
         flux_results.set({
             'flux_matrix': flux_matrix,
             'losses': losses,
-            'validation': validation
+            'validation': validation,
+            'temperature': temp
         })
 
     @output
@@ -1332,6 +1333,7 @@ Node-Weighted Network Indicators:
         return f"""
 Flux-Based Indicators:
 
+  Temperature Used (°C): {flux_results()['temperature']:.1f}
   Link-Weighted Connectance (lwC): {indicators['lwC']:.4f}
   Link-Weighted Generality (lwG): {indicators['lwG']:.4f}
   Link-Weighted Vulnerability (lwV): {indicators['lwV']:.4f}

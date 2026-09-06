@@ -599,3 +599,39 @@ def test_menu_effect_updates_hidden_navset():
                   if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)}
     assert "update_navset" in attr_calls, \
         "_make_menu_effect must call ui.update_navset('page_nav', selected=page_key) to switch the now-static navset"
+
+
+def test_flux_results_records_and_displays_temperature_used():
+    """flux_results must record the temperature the calculation actually ran
+    with, and flux_indicators must display it."""
+    import ast
+    source = APP.read_text(encoding="utf-8")
+    tree = ast.parse(source)
+
+    calc_effect = None
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) and node.name == "_":
+            deco_src = "\n".join(ast.unparse(d) for d in node.decorator_list)
+            if "calculate_fluxes" in deco_src:
+                calc_effect = node
+                break
+    assert calc_effect is not None, "could not find the calculate_fluxes reactive.effect"
+
+    dict_keys = set()
+    for node in ast.walk(calc_effect):
+        if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "set" and isinstance(node.func.value, ast.Name)
+                and node.func.value.id == "flux_results"):
+            for arg in node.args:
+                if isinstance(arg, ast.Dict):
+                    dict_keys = {k.value for k in arg.keys if isinstance(k, ast.Constant)}
+    assert "temperature" in dict_keys, \
+        "flux_results.set(...) is missing a 'temperature' key recording the temperature used"
+
+    indicators_fn = next(
+        n for n in ast.walk(tree)
+        if isinstance(n, ast.FunctionDef) and n.name == "flux_indicators"
+    )
+    fn_src = ast.get_source_segment(source, indicators_fn)
+    assert "temperature" in fn_src.lower(), \
+        "flux_indicators panel does not display the recorded temperature"
