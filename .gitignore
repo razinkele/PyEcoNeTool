@@ -62,3 +62,6 @@ _*.py
 
 # Superpowers per-plan scratch workspace (ledgers, task briefs, reports, drafts)
 .superpowers/
+
+# deploy.sh run logs (created at run time by deploy.sh)
+deployment_logs/
