@@ -281,3 +281,61 @@ def test_download_network_html_has_no_local_asset_references(simple_test_network
         "download HTML must embed the full (non-truncated) vis-network JS inline"
     assert net.cdn_resources == CDN_LOCAL, \
         "helper must not mutate the caller's network in place"
+
+
+def test_network_download_html_stretches_mynetwork_to_fill_container(simple_test_network):
+    """Task 40 builds topology_network_cached()/flux_network_cached() with a
+    fixed Network(height="100%") so the height slider only resizes the
+    iframe, never the cached Network object (Spec 6.2). But pyvis's own
+    template (pyvis/templates/template.html) sets
+    `#mynetwork { height: {{height}} }` with no ancestor (html/body/.card)
+    given an explicit height, so a bare height="100%" resolves against
+    nothing and the canvas collapses to near-zero -- verified with
+    Playwright: #mynetwork measured ~120-160px regardless of the requested
+    height, both standalone and embedded in a correctly-sized iframe. The
+    downloaded HTML must carry a CSS fix that gives html/body a definite
+    height and makes .card stretch to fill it, so #mynetwork's height:100%
+    has something real to resolve against."""
+    import importlib
+    app = importlib.import_module("app")
+    G, species, groups, biomass, colors = simple_test_network
+    net = create_topology_network(G, species, groups, biomass, colors, height="100%")
+
+    html = app._network_download_html(net)
+    squashed = html.replace(" ", "").replace("\n", "")
+
+    assert "html,body{height:100%" in squashed, (
+        "download HTML must stretch html/body to a definite height so a "
+        "100%-height network canvas can resolve against it"
+    )
+    assert ".card{flex:1" in squashed or ".card{display:flex" in squashed, (
+        ".card must become (or receive) a flexed child that fills its "
+        "now-stretched ancestor, not just an inert height:100% with "
+        "nothing to inherit from"
+    )
+
+
+def test_render_network_iframe_applies_same_height_fix_and_respects_requested_height(simple_test_network):
+    """app._render_network_iframe replaces the two live
+    pyvis.shiny.render_network call sites (network_plot, flux_network_plot)
+    so the same collapse fix reaches the on-screen graph, not only the
+    download. It must still honor the height the slider passes in for the
+    iframe element itself -- Spec 6.2 says the height drives the iframe,
+    never the cached Network object."""
+    import importlib
+    app = importlib.import_module("app")
+    G, species, groups, biomass, colors = simple_test_network
+    net = create_topology_network(G, species, groups, biomass, colors, height="100%")
+
+    tag = app._render_network_iframe(net, height="480px", width="100%")
+
+    assert tag.attrs["height"] == "480px", (
+        "the requested height must still drive the iframe element itself"
+    )
+    assert "srcdoc" in tag.attrs and "src" not in tag.attrs
+    srcdoc = tag.attrs["srcdoc"]
+    squashed = srcdoc.replace(" ", "").replace("\n", "")
+    assert "html,body{height:100%" in squashed, (
+        "the live iframe srcdoc must carry the same html/body height fix "
+        "as the download path, or the on-screen graph still collapses"
+    )

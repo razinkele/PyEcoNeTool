@@ -45,8 +45,6 @@ from network_viz import (
     create_flux_network,
     get_functional_group_colors,
 )
-from pyvis.shiny import render_network
-
 from feedback_reporter import collect_system_context, submit_feedback_async
 
 import logging
@@ -127,13 +125,43 @@ def _capped_input_text_area(id_, label, *, rows=None, placeholder=None, width=No
     return tag
 
 
-def _network_download_html(net):
-    """Render a pyvis Network to a standalone HTML string for file download.
-    Mirrors pyvis.shiny.wrapper.render_network's CDN_LOCAL -> CDN_INLINE
-    deep-copy override (used there for the iframe srcdoc path): a network
-    built with cdn_resources='local' (network_viz.py's default) embeds
-    src="lib/..." references that only resolve inside this app's own
-    template directory, so a saved-and-reopened file would render blank.
+# pyvis's own template (pyvis/templates/template.html) sets
+# `#mynetwork { height: {{height}} }` with no ancestor (html/body/.card)
+# given an explicit height. topology_network_cached()/flux_network_cached()
+# build the Network with a fixed height="100%" (Task 40, Spec 6.2: the
+# height slider drives only the iframe, never the cached Network object),
+# so that percentage has nothing to resolve against and the canvas
+# collapses to near-zero -- verified with Playwright: #mynetwork measured
+# ~120-160px regardless of the requested height, both standalone and
+# embedded in a correctly-sized iframe. This CSS override gives html/body a
+# definite height and turns .card into a flex child that fills it, so
+# #mynetwork's height:100% (already flex:1 1 auto via its own .card-body
+# class) has something real to stretch into. Avoids `.card{height:100%}`
+# directly: the template's <center><h1>{{heading}}</h1></center> sits
+# before .card and still contributes a few px of collapsed margin even
+# when heading is empty, which would overflow a plain height:100% card and
+# add a scrollbar; flex sizing (.card{flex:1 1 auto}) absorbs that instead.
+_NETWORK_HEIGHT_FIX_CSS = (
+    "<style>html,body{height:100%;margin:0;padding:0}"
+    "body{display:flex;flex-direction:column}"
+    ".card{flex:1 1 auto;min-height:0}</style>"
+)
+
+
+def _inject_network_height_fix(html):
+    """Insert _NETWORK_HEIGHT_FIX_CSS right after the opening <head> tag so
+    it applies regardless of what else the template emits in <head>."""
+    return html.replace("<head>", "<head>" + _NETWORK_HEIGHT_FIX_CSS, 1)
+
+
+def _network_html(net):
+    """Render a pyvis Network to a self-contained HTML string, with the
+    height-collapse fix above applied. Mirrors
+    pyvis.shiny.wrapper.render_network's CDN_LOCAL -> CDN_INLINE deep-copy
+    override: a network built with cdn_resources='local' (network_viz.py's
+    default) embeds src="lib/..." references that only resolve inside this
+    app's own template directory, so a saved-and-reopened file (or an
+    iframe srcdoc, which has no base URL of its own) would render blank.
     Deep-copies before mutating cdn_resources to avoid altering the caller's
     network (which topology_network_cached()/flux_network_cached() may still
     be holding)."""
@@ -141,8 +169,34 @@ def _network_download_html(net):
     if net.cdn_resources == CDN_LOCAL:
         net_copy = copy.deepcopy(net)
         net_copy.cdn_resources = CDN_INLINE
-        return net_copy.generate_html()
-    return net.generate_html()
+        html = net_copy.generate_html()
+    else:
+        html = net.generate_html()
+    return _inject_network_height_fix(html)
+
+
+def _network_download_html(net):
+    """Render a pyvis Network to a standalone HTML string for file download.
+    Thin wrapper over _network_html (see there for the CDN-inlining and
+    height-collapse-fix rationale)."""
+    return _network_html(net)
+
+
+def _render_network_iframe(net, height="600px", width="100%"):
+    """Replacement for pyvis.shiny.render_network for this app's two live
+    network panels (network_plot, flux_network_plot). Produces the same
+    iframe/srcdoc shape render_network does, but srcdoc comes from
+    _network_html() so the height-collapse fix reaches the on-screen graph
+    too, not just the download. `height`/`width` size the iframe element
+    itself -- per Spec 6.2 that's the only thing the height slider is
+    allowed to drive; the cached Network object's own height stays fixed
+    at "100%" regardless."""
+    return ui.tags.iframe(
+        srcdoc=_network_html(net),
+        style=f"width:{width}; height:{height}; border:none;",
+        width=width,
+        height=height,
+    )
 
 
 # ============================================================================
@@ -1080,7 +1134,7 @@ Network Statistics:
             if flux_results() is None:
                 return ui.p("Please calculate fluxes first in the Energy Fluxes tab.")
             net = flux_network_cached()
-        return render_network(net, height=h, width="100%")
+        return _render_network_iframe(net, height=h, width="100%")
 
     @render.download(filename="econetool_network.html")
     def download_network():
@@ -1395,7 +1449,7 @@ Flux-Based Indicators:
         if flux_results() is None:
             return ui.p("Click 'Calculate Fluxes' in the sidebar to generate the flux-weighted network.")
         net = flux_network_cached()
-        return render_network(net, height="600px", width="100%")
+        return _render_network_iframe(net, height="600px", width="100%")
 
     # ========================================================================
     # KEYSTONENESS ANALYSIS TAB
