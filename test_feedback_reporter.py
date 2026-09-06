@@ -9,9 +9,11 @@ Run: pytest test_feedback_reporter.py -v
 
 from __future__ import annotations
 
+import http.client
 import io
 import json
 import re
+import threading
 import urllib.request
 from pathlib import Path
 from typing import Any
@@ -314,3 +316,57 @@ def test_submit_feedback_label_mapping_falls_back_for_unknown_type(tmp_path, mon
     assert result.local_success is True
     entry = json.loads(log.read_text(encoding="utf-8").strip().splitlines()[0])
     assert entry["labels"] == LABEL_MAP["general"]
+
+
+def test_create_github_issue_returns_none_on_http_client_exception(monkeypatch):
+    """http.client.HTTPException (e.g. BadStatusLine) is a transport failure
+    like URLError/OSError and must degrade to None, not propagate."""
+    monkeypatch.setenv("ECONETPY_GITHUB_TOKEN", "ghp_fake_token")
+
+    def fake_urlopen(req, timeout):
+        raise http.client.HTTPException("malformed response")
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    assert create_github_issue("t", "b") is None
+
+
+@pytest.mark.asyncio
+async def test_submit_feedback_async_runs_github_call_off_the_event_loop(tmp_path, monkeypatch):
+    """Decision #7: only the network call is async; save_feedback_local stays
+    synchronous. Prove the GitHub call actually runs in a worker thread via
+    asyncio.to_thread, not on the event loop thread."""
+    from feedback_reporter import submit_feedback_async
+    monkeypatch.setenv("ECONETPY_GITHUB_TOKEN", "ghp_fake")
+    log = tmp_path / "f.ndjson"
+    main_thread_id = threading.get_ident()
+    seen_thread_ids = []
+
+    class FakeResp:
+        status = 201
+        def read(self):
+            return json.dumps({"html_url": "https://github.com/x/y/issues/9", "number": 9}).encode("utf-8")
+        def __enter__(self):
+            return self
+        def __exit__(self, *a):
+            return False
+
+    def fake_urlopen(req, timeout):
+        seen_thread_ids.append(threading.get_ident())
+        return FakeResp()
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    result = await submit_feedback_async(title="t", description="d", log_path=log)
+
+    assert result.local_success is True
+    assert result.github_success is True
+    assert result.github_url == "https://github.com/x/y/issues/9"
+    assert seen_thread_ids and seen_thread_ids[0] != main_thread_id
+    entries = [json.loads(line) for line in log.read_text(encoding="utf-8").strip().splitlines()]
+    assert len(entries) == 2  # original + URL-corrected, same NDJSON-append pattern as submit_feedback
+
+
+@pytest.mark.asyncio
+async def test_submit_feedback_async_validates_title_required(tmp_path):
+    from feedback_reporter import submit_feedback_async
+    with pytest.raises(ValueError, match="title"):
+        await submit_feedback_async(title="  ", description="x", log_path=tmp_path / "f.ndjson")

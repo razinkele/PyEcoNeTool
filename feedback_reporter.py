@@ -13,6 +13,8 @@ Public API:
 
 from __future__ import annotations
 
+import asyncio
+import http.client
 import json
 import logging
 import os
@@ -147,7 +149,7 @@ def create_github_issue(
     except urllib.error.HTTPError as exc:
         logger.error("create_github_issue HTTP %s: %s", exc.code, exc.reason)
         return None
-    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+    except (urllib.error.URLError, TimeoutError, OSError, http.client.HTTPException) as exc:
         logger.error("create_github_issue network: %s", exc)
         return None
     except (ValueError, KeyError) as exc:
@@ -169,20 +171,9 @@ def _build_issue_body(description: str, steps: str, context: dict[str, Any]) -> 
     return "".join(parts)
 
 
-def submit_feedback(
-    *,
-    title: str,
-    description: str,
-    type_: str = "general",
-    steps: str = "",
-    context: Optional[dict[str, Any]] = None,
-    log_path: Path = DEFAULT_LOG_PATH,
-) -> SubmissionResult:
-    """Orchestrate local save + optional GitHub Issue creation.
-
-    Validation errors (empty title/description) raise ValueError —
-    the caller is responsible for user-facing message.
-    """
+def _prepare_submission(
+    title: str, description: str, type_: str, steps: str, context: Optional[dict[str, Any]]
+) -> tuple[list[str], str, dict[str, Any]]:
     if not title.strip():
         raise ValueError("title is required")
     if not description.strip():
@@ -191,7 +182,6 @@ def submit_feedback(
     ctx = context or {}
     labels = LABEL_MAP.get(type_, LABEL_MAP["general"])
     issue_body = _build_issue_body(description, steps, ctx)
-
     local_payload: dict[str, Any] = {
         "title": title,
         "description": description,
@@ -201,19 +191,54 @@ def submit_feedback(
         "github_url": None,
         **ctx,
     }
-    local_ok = save_feedback_local(local_payload, path=log_path)
+    return labels, issue_body, local_payload
 
-    gh = create_github_issue(title, issue_body, labels)
+
+def _finalize_submission(
+    local_payload: dict[str, Any], local_ok: bool, gh: Optional[dict[str, Any]], log_path: Path
+) -> SubmissionResult:
     github_ok = gh is not None
     github_url = gh["url"] if github_ok else None
-
     # If GitHub succeeded, append a corrected entry with the URL. The original
     # entry remains (acceptable for NDJSON; matches the R behaviour).
     if github_ok and local_ok:
         save_feedback_local({**local_payload, "github_url": github_url}, path=log_path)
+    return SubmissionResult(local_success=local_ok, github_success=github_ok, github_url=github_url)
 
-    return SubmissionResult(
-        local_success=local_ok,
-        github_success=github_ok,
-        github_url=github_url,
-    )
+
+def submit_feedback(
+    *,
+    title: str,
+    description: str,
+    type_: str = "general",
+    steps: str = "",
+    context: Optional[dict[str, Any]] = None,
+    log_path: Path = DEFAULT_LOG_PATH,
+) -> SubmissionResult:
+    """Orchestrate local save + optional GitHub Issue creation, fully synchronous.
+
+    Validation errors (empty title/description) raise ValueError —
+    the caller is responsible for user-facing message.
+    """
+    labels, issue_body, local_payload = _prepare_submission(title, description, type_, steps, context)
+    local_ok = save_feedback_local(local_payload, path=log_path)
+    gh = create_github_issue(title, issue_body, labels)
+    return _finalize_submission(local_payload, local_ok, gh, log_path)
+
+
+async def submit_feedback_async(
+    *,
+    title: str,
+    description: str,
+    type_: str = "general",
+    steps: str = "",
+    context: Optional[dict[str, Any]] = None,
+    log_path: Path = DEFAULT_LOG_PATH,
+) -> SubmissionResult:
+    """Same contract as submit_feedback(), except the GitHub network call runs
+    off the event loop via asyncio.to_thread. The local NDJSON append stays
+    synchronous (decision #7: only the network call becomes async)."""
+    labels, issue_body, local_payload = _prepare_submission(title, description, type_, steps, context)
+    local_ok = save_feedback_local(local_payload, path=log_path)
+    gh = await asyncio.to_thread(create_github_issue, title, issue_body, labels)
+    return _finalize_submission(local_payload, local_ok, gh, log_path)
