@@ -838,6 +838,7 @@ def server(input, output, session):
         @reactive.event(getattr(input, menu_input_id))
         def _():
             current_page.set(page_key)
+            ui.update_navset("page_nav", selected=page_key)
         return _
 
     for _page_key, (_menu_input_id, _builder) in PAGES.items():
@@ -988,8 +989,11 @@ def server(input, output, session):
     @output
     @render.ui
     def main_content():
-        _, builder = PAGES.get(current_page(), ("", dashboard_ui))
-        return builder()
+        return ui.navset_hidden(
+            *[ui.nav_panel(key, builder(), value=key) for key, (_, builder) in PAGES.items()],
+            id="page_nav",
+            selected="dashboard",
+        )
 
     # ========================================================================
     # DASHBOARD TAB

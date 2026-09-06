@@ -559,3 +559,43 @@ def test_handle_feedback_submit_is_async_and_awaits_submit_feedback_async():
         if isinstance(n, ast.Await) and isinstance(n.value, ast.Call) and isinstance(n.value.func, ast.Name)
     }
     assert "submit_feedback_async" in awaited_names
+
+
+def test_main_content_builds_once_no_current_page_read():
+    """main_content must not read current_page() -- doing so forces Shiny to
+    tear down and rebuild the whole page (destroying every input.*, resetting
+    network_type/network_height/temperature to their defaults) on every menu
+    click. It must build a static ui.navset_hidden(...) once instead, so
+    every page's inputs stay mounted across navigation."""
+    import ast
+    source = APP.read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    main_content_fn = next(
+        n for n in ast.walk(tree)
+        if isinstance(n, ast.FunctionDef) and n.name == "main_content"
+    )
+    name_calls = {n.func.id for n in ast.walk(main_content_fn)
+                  if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)}
+    attr_calls = {n.func.attr for n in ast.walk(main_content_fn)
+                  if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)}
+    assert "current_page" not in name_calls, \
+        "main_content still reads current_page() -- it rebuilds and destroys every page's inputs on each navigation"
+    assert "navset_hidden" in attr_calls, \
+        "main_content must build ui.navset_hidden(...) wrapping all PAGES builders so inputs persist"
+
+
+def test_menu_effect_updates_hidden_navset():
+    """Now that main_content builds once, page switching must happen by
+    telling the client-side navset which panel to show, not by re-rendering
+    server-side UI."""
+    import ast
+    source = APP.read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    make_effect_fn = next(
+        n for n in ast.walk(tree)
+        if isinstance(n, ast.FunctionDef) and n.name == "_make_menu_effect"
+    )
+    attr_calls = {n.func.attr for n in ast.walk(make_effect_fn)
+                  if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)}
+    assert "update_navset" in attr_calls, \
+        "_make_menu_effect must call ui.update_navset('page_nav', selected=page_key) to switch the now-static navset"
