@@ -635,3 +635,42 @@ def test_flux_results_records_and_displays_temperature_used():
     fn_src = ast.get_source_segment(source, indicators_fn)
     assert "temperature" in fn_src.lower(), \
         "flux_indicators panel does not display the recorded temperature"
+
+
+def test_network_build_cached_independent_of_height_slider():
+    """The pyvis Network build must live in a @reactive.calc keyed on data
+    only -- moving the height slider must not rebuild node styling, tooltips,
+    and physics from scratch every time."""
+    import ast
+    source = APP.read_text(encoding="utf-8")
+    tree = ast.parse(source)
+
+    calc_fn_names = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef):
+            deco_names = {d.attr if isinstance(d, ast.Attribute) else getattr(d, "id", None)
+                          for d in node.decorator_list}
+            if "calc" in deco_names:
+                calc_fn_names.add(node.name)
+
+    build_calls = [n for n in ast.walk(tree)
+                   if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+                   and n.func.id in {"create_topology_network", "create_flux_network"}]
+    assert build_calls, "no create_topology_network/create_flux_network call sites found"
+
+    all_fns = [n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)]
+    for call in build_calls:
+        enclosing = min(
+            (fn for fn in all_fns if fn.lineno <= call.lineno <= fn.end_lineno),
+            key=lambda fn: fn.end_lineno - fn.lineno,
+        )
+        assert enclosing.name in calc_fn_names, (
+            f"create_*_network call at line {call.lineno} is in {enclosing.name!r}, "
+            "not a @reactive.calc -- it will rebuild on every height-slider tick"
+        )
+        for kw in call.keywords:
+            if kw.arg == "height":
+                assert isinstance(kw.value, ast.Constant), (
+                    f"height= passed to the network builder at line {call.lineno} must be a fixed "
+                    f"constant, not derived from input.network_height() -- got {ast.dump(kw.value)}"
+                )

@@ -135,7 +135,8 @@ def _network_download_html(net):
     src="lib/..." references that only resolve inside this app's own
     template directory, so a saved-and-reopened file would render blank.
     Deep-copies before mutating cdn_resources to avoid altering the caller's
-    network (which _build_network's caches may still be holding)."""
+    network (which topology_network_cached()/flux_network_cached() may still
+    be holding)."""
     from pyvis.network import CDN_LOCAL, CDN_INLINE
     if net.cdn_resources == CDN_LOCAL:
         net_copy = copy.deepcopy(net)
@@ -783,28 +784,36 @@ def server(input, output, session):
         node_colors, color_map = get_functional_group_colors(current_species_info()['fg'].tolist())
         return node_colors, color_map
 
-    def _build_network(kind, height="600px"):
-        """Build the topology or flux pyvis Network from the shared caches.
-        kind in {'topology','flux'}. Returns a pyvis Network; callers wrap it
-        (render_network for the UI panels, net.generate_html() for download).
-        The 'flux' kind reads flux_results()['flux_matrix'] — callers MUST guard
-        that flux_results() is not None before requesting kind='flux'."""
+    @reactive.calc
+    def topology_network_cached():
+        """Build the topology pyvis Network from the shared caches. Cached on
+        data only -- NOT on the height slider, so resizing does not rebuild
+        node styling/tooltips/physics from scratch."""
         G = current_network()
         info = current_species_info()
         node_colors, _ = colors_cached()
         tl = trophic_levels_cached()
-        if kind == "topology":
-            return create_topology_network(
-                G, species_names=info['species'].tolist(),
-                functional_groups=info['fg'].tolist(),
-                biomass=info['meanB'].values, colors=node_colors,
-                height=height, trophic_levels=tl)
+        return create_topology_network(
+            G, species_names=info['species'].tolist(),
+            functional_groups=info['fg'].tolist(),
+            biomass=info['meanB'].values, colors=node_colors,
+            height="100%", trophic_levels=tl)
+
+    @reactive.calc
+    def flux_network_cached():
+        """Build the flux-weighted pyvis Network. Cached on data + flux_results
+        only -- NOT on the height slider. Callers MUST guard that
+        flux_results() is not None before calling this."""
+        G = current_network()
+        info = current_species_info()
+        node_colors, _ = colors_cached()
+        tl = trophic_levels_cached()
         return create_flux_network(
             G, species_names=info['species'].tolist(),
             functional_groups=info['fg'].tolist(),
             biomass=info['meanB'].values, colors=node_colors,
             flux_matrix=flux_results()['flux_matrix'],
-            height=height, trophic_levels=tl)
+            height="100%", trophic_levels=tl)
     current_page = reactive.Value("dashboard")
 
     # ========================================================================
@@ -1066,19 +1075,19 @@ Network Statistics:
     def network_plot():
         h = f"{input.network_height()}px"
         if input.network_type() == "Topology":
-            net = _build_network("topology", height=h)
+            net = topology_network_cached()
         else:
             if flux_results() is None:
                 return ui.p("Please calculate fluxes first in the Energy Fluxes tab.")
-            net = _build_network("flux", height=h)
+            net = flux_network_cached()
         return render_network(net, height=h, width="100%")
 
     @render.download(filename="econetool_network.html")
     def download_network():
         if input.network_type() == "Flux-Weighted" and flux_results() is not None:
-            net = _build_network("flux")
+            net = flux_network_cached()
         else:
-            net = _build_network("topology")
+            net = topology_network_cached()
         yield _network_download_html(net)
 
     @output
@@ -1385,7 +1394,7 @@ Flux-Based Indicators:
     def flux_network_plot():
         if flux_results() is None:
             return ui.p("Click 'Calculate Fluxes' in the sidebar to generate the flux-weighted network.")
-        net = _build_network("flux", height="600px")
+        net = flux_network_cached()
         return render_network(net, height="600px", width="100%")
 
     # ========================================================================
