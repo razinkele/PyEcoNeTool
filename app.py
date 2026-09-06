@@ -1181,6 +1181,8 @@ Network Statistics:
     @render.text
     @safe_render("text")
     def topological_indicators():
+        if os.environ.get("ECONETOOL_FORCE_RENDER_ERROR") == "topological_indicators":
+            raise RuntimeError("forced renderer error (live smoke)")
         G = current_network()
         indicators = get_topological_indicators(G, trophic_levels=trophic_levels_cached())
 
