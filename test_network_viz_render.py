@@ -239,6 +239,19 @@ def test_color_overflow_warns():
     assert any("color" in str(x.message).lower() for x in caught), [str(x.message) for x in caught]
 
 
+def test_color_mapping_coerces_mixed_type_labels():
+    """A functional-group column read from a CSV can carry a stray NaN (float)
+    alongside string labels (e.g. a blank cell). sorted(set(...)) on mixed
+    str/float raises TypeError before any color is ever assigned."""
+    import numpy as np
+    from network_viz import get_functional_group_colors
+    groups = ["Fish", float("nan"), "Fish", 3]
+    node_colors, color_map = get_functional_group_colors(groups)
+    assert len(node_colors) == 4
+    assert set(color_map.keys()) == {"Fish", "nan", "3"}
+    assert node_colors[0] == node_colors[2] == color_map["Fish"]
+
+
 def test_download_network_html_has_no_local_asset_references(simple_test_network):
     """crit1: the downloaded network HTML must be self-contained - no
     src="lib/..." reference a saved-and-reopened file's browser can't resolve.

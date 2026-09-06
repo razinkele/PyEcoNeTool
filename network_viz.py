@@ -296,7 +296,8 @@ def get_functional_group_colors(functional_groups: List[str]) -> Tuple[List[str]
     Returns:
         Tuple of (list of colors for each node, dict mapping group name to color)
     """
-    unique_groups = sorted(list(set(functional_groups)))
+    functional_groups = [str(g) for g in functional_groups]
+    unique_groups = sorted(set(functional_groups))
 
     if len(unique_groups) > len(COLOR_SCHEME):
         warnings.warn(
