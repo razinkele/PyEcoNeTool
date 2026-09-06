@@ -70,7 +70,7 @@ pip install -r requirements.txt
 - htmltools>=0.5.0
 - shinyswatch>=0.4.0
 - networkx>=3.0
-- pyvis @ git+https://github.com/razinkele/pyvis.git@v4.2
+- pyvis-optimized @ git+https://github.com/razinkele/pyvis.git@v4.3.1 (import name remains `pyvis`)
 - pandas>=2.0.0
 - numpy>=2.0.0
 - scipy>=1.10.0

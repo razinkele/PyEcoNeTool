@@ -7,7 +7,11 @@ shinyswatch>=0.4.0  # Bootstrap themes
 networkx>=3.0
 
 # Network Visualization
-pyvis @ git+https://github.com/razinkele/pyvis.git@v4.2  # razinkele fork; not on PyPI. Requires git on PATH at install time.
+# razinkele fork; not on PyPI. Requires git on PATH at install time.
+# The distribution was renamed pyvis -> pyvis-optimized in v4.3.1, so the
+# requirement name must be pyvis-optimized; the import name is still `pyvis`.
+# Tag v4.3.1 == commit d84e2931024f5d91b3fc1a969ea27596d29fcdb3 (tags are mutable).
+pyvis-optimized @ git+https://github.com/razinkele/pyvis.git@v4.3.1
 
 # Data Processing
 pandas>=2.0.0

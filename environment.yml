@@ -33,4 +33,6 @@ dependencies:
   - pytest-playwright>=0.5.0
   - pip
   - pip:
-      - pyvis @ git+https://github.com/razinkele/pyvis.git@v4.2
+      # Renamed pyvis -> pyvis-optimized in v4.3.1; import name is still `pyvis`.
+      # Tag v4.3.1 == commit d84e2931024f5d91b3fc1a969ea27596d29fcdb3 (tags are mutable).
+      - pyvis-optimized @ git+https://github.com/razinkele/pyvis.git@v4.3.1
