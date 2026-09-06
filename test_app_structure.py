@@ -108,6 +108,23 @@ def test_safe_render_below_render_text_order():
     assert "could not be computed" in result.lower()
 
 
+def test_functional_groups_legend_has_safe_render_ui():
+    """functional_groups_legend must be wrapped in @safe_render('ui') like every
+    other panel renderer, so a bad functional-group value can't crash the
+    whole dashboard instead of showing the uniform error element."""
+    tree = ast.parse(APP.read_text(encoding="utf-8"))
+    node = next(
+        n for n in ast.walk(tree)
+        if isinstance(n, ast.FunctionDef) and n.name == "functional_groups_legend"
+    )
+    safe_render_calls = [
+        d for d in node.decorator_list
+        if isinstance(d, ast.Call) and isinstance(d.func, ast.Name) and d.func.id == "safe_render"
+    ]
+    assert safe_render_calls, "functional_groups_legend must carry @safe_render(...)"
+    assert safe_render_calls[0].args[0].value == "ui"
+
+
 def test_tl_method_is_single_topbar_select():
     """The trophic-level method control lives once, in the persistent top bar,
     as a <select> dropdown — not in the dashboard sidebar, and not duplicated."""

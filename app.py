@@ -965,6 +965,7 @@ Network Statistics:
 
     @output
     @render.ui
+    @safe_render("ui")
     def functional_groups_legend():
         info = current_species_info()
         unique_groups = sorted(info['fg'].unique())
