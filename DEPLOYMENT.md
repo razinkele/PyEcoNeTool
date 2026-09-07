@@ -39,36 +39,47 @@ sudo. **The app is proven working on port 3838 before nginx exposes it.**
 
 ### 1. Install the pyvis fork into the shared env
 
-The shared env has the fork under its **old distribution name** (`pyvis 4.2`).
-v4.3.1 renamed the distribution to `pyvis-optimized`; the import name stays
-`pyvis`. The old dist must be removed first or two distributions own the same
-import package.
+The pinned version is **`pyvis-optimized` v4.4.0** (see `requirements.txt`).
+The distribution was renamed `pyvis` -> `pyvis-optimized` at v4.3.1; the import
+name is still `pyvis`. If the old `pyvis` dist is present it must be removed
+first, or two distributions own the same import package.
 
 ```bash
 ssh razinka@laguna.ku.lt
 
-# What is there now (expect: pyvis 4.2)
+# What is there now
 /opt/micromamba/envs/shiny/bin/pip list 2>/dev/null | grep -i pyvis
 
-# site-packages is root:micromamba, so install as root
+# Only if a dist named plain `pyvis` is listed (pre-4.3.1 installs):
 sudo /opt/micromamba/envs/shiny/bin/pip uninstall -y pyvis
-sudo env PIP_NO_CACHE_DIR=1 /opt/micromamba/envs/shiny/bin/pip install \
-  "pyvis-optimized @ git+https://github.com/razinkele/pyvis.git@v4.3.1"
 
-# Verify
+# site-packages is root:micromamba, so install as root
+sudo env PIP_NO_CACHE_DIR=1 /opt/micromamba/envs/shiny/bin/pip install "pyvis-optimized @ git+https://github.com/razinkele/pyvis.git@v4.4.0"
+
+# Verify: expect 4.4.0, and exactly one pyvis distribution
 /opt/micromamba/envs/shiny/bin/python3 -c "import pyvis; print(pyvis.__version__)"
+/opt/micromamba/envs/shiny/bin/pip list 2>/dev/null | grep -i pyvis
 ```
 
 > **Shared-env warning.** `/opt/micromamba/envs/shiny` backs every Python Shiny
-> app on laguna. `AQUABC` and `BowTie` also `import pyvis`. This is a
-> 4.2 → 4.3.1 bump *within the same fork*, so it should be compatible, but
-> smoke-test `https://laguna.ku.lt/AQUABC/` and `https://laguna.ku.lt/BowTie/`
-> after this step. Roll back with (the uninstall matters — otherwise two
-> distributions own the same `pyvis` import package):
+> app on laguna and holds ONE version, so this pin is a cross-project decision.
+> **Seven apps import pyvis**: BowTie, EconetPy, EVA, MosaicSES, NiDSES, osmose,
+> SESPy. (`AQUABC` is *not* one — its "pyvis" matches are vis.js and an error
+> string.) Smoke the consumers after this step:
+>
+> ```bash
+> for a in BowTie EconetPy EVA MosaicSES NiDSES osmose SESPy; do
+>   printf '%-12s %s
+' "$a" "$(curl -s -o /dev/null -w '%{http_code}' https://laguna.ku.lt/$a/)"
+> done
+> ```
+>
+> Roll back with (the uninstall matters — otherwise two distributions own the
+> same `pyvis` import package):
 >
 > ```bash
 > sudo /opt/micromamba/envs/shiny/bin/pip uninstall -y pyvis-optimized
-> sudo /opt/micromamba/envs/shiny/bin/pip install >   "pyvis @ git+https://github.com/razinkele/pyvis.git@v4.2"
+> sudo env PIP_NO_CACHE_DIR=1 /opt/micromamba/envs/shiny/bin/pip install "pyvis-optimized @ git+https://github.com/razinkele/pyvis.git@v4.3.1"
 > ```
 >
 > Do **not** `pip install -r requirements.txt` on the server — it would drag
