@@ -11,14 +11,17 @@ networkx>=3.0
 # The distribution was renamed pyvis -> pyvis-optimized in v4.3.1, so the
 # requirement name must be pyvis-optimized; the import name is still `pyvis`.
 # Tag v4.3.1 == commit d84e2931024f5d91b3fc1a969ea27596d29fcdb3 (tags are mutable).
-# Verified compatible with BOTH v4.3.1 and v4.4.0 (full suite green under
-# 4.4.0 locally; viz + structure suite 58/58 under 4.3.1 on the server).
-# A git+https requirement must name ONE ref, so this pins the version actually
-# deployed on the server. NOTE: the `shiny` env is shared, and sibling projects
-# disagree — BowTie pins razinka::pyvis=4.2, and the pyvis-master working copy
-# is past v4.4.0. Bumping this pin means moving that shared env, so change it
-# deliberately, not as a side effect.
-pyvis-optimized @ git+https://github.com/razinkele/pyvis.git@v4.3.1
+# The `shiny` env is SHARED — on laguna by ~20 apps, locally across projects —
+# and holds ONE version, so this pin is effectively cross-project. Seven apps
+# import pyvis (BowTie, EconetPy, EVA, MosaicSES, NiDSES, osmose, SESPy);
+# AQUABC only mentions it in vis.js/error strings and is NOT a consumer.
+#
+# v4.4.0 verified before bumping: additive (network teardown command, debounced
+# resize guard, bundled vis-network 10.0.2 -> 10.1.2) plus one breaking change,
+# `require Python >=3.10` — satisfied, the server runs 3.13.14. No app hardcodes
+# the bundled `lib/vis-<ver>/` path, so the vis bundle move is safe.
+# Tag v4.4.0 (tags are mutable; re-verify if it is ever moved).
+pyvis-optimized @ git+https://github.com/razinkele/pyvis.git@v4.4.0
 
 # Data Processing
 pandas>=2.0.0

@@ -34,17 +34,15 @@ dependencies:
   - pip
   - pip:
       # Renamed pyvis -> pyvis-optimized in v4.3.1; import name is still `pyvis`.
-      # Tag v4.3.1 == commit d84e2931024f5d91b3fc1a969ea27596d29fcdb3 (tags are mutable).
-      #
-      # Verified compatible with BOTH v4.3.1 and v4.4.0 (EconetPy: 182 pass under
-      # 4.4.0 locally, 58 pass under 4.3.1 on the server; BowTie's pyvis tests:
-      # 21 pass under 4.4.0). A git+https requirement must name ONE ref, so this
-      # pins the version actually deployed on the server.
       #
       # WARNING: the `shiny` env is SHARED — on laguna by ~20 apps, and locally
-      # across projects. Sibling projects disagree (BowTie pins razinka::pyvis=4.2;
-      # the pyvis-master working copy is past v4.4.0), and the env can only hold
-      # one version: the last install wins. Bumping this pin moves that shared env
-      # for every consumer, so change it deliberately. AQUABC is the one consumer
-      # not yet tested above 4.2 — smoke it before any bump.
-      - pyvis-optimized @ git+https://github.com/razinkele/pyvis.git@v4.3.1
+      # across projects — and holds ONE version, so this pin is effectively a
+      # cross-project decision. Seven apps import pyvis (BowTie, EconetPy, EVA,
+      # MosaicSES, NiDSES, osmose, SESPy). Never apply this file with
+      # `--prune`: it would remove ~459 packages other projects need.
+      #
+      # v4.4.0 verified before bumping: additive changes plus one breaking one,
+      # `require Python >=3.10` — satisfied (server runs 3.13.14). No app
+      # hardcodes the bundled `lib/vis-<ver>/` path, so the vis-network
+      # 10.0.2 -> 10.1.2 bundle move is safe. Tags are mutable; re-verify if moved.
+      - pyvis-optimized @ git+https://github.com/razinkele/pyvis.git@v4.4.0
