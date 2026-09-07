@@ -95,6 +95,10 @@ deploy/deploy.sh
 
 Do not continue until this prints `import OK` and `Done.`
 
+> **Deploying from a fresh clone?** `deploy/config.env` is gitignored, so it
+> will not exist. Create it first:
+> `cp deploy/config.env.example deploy/config.env` and fill in the host/path.
+
 ### 4. Register the app with Shiny Server
 
 First render the configs from the CURRENT live copies and stage them (this
@@ -178,6 +182,22 @@ deploy/server/render-configs.sh --stage  # also scp them to the server
 
 Rendering from live each time also means a config someone else changed in the
 meantime is picked up, instead of being silently reverted by a stale copy.
+
+## Verifying a deployment
+
+After any deploy, check the deployed instance end to end — this exercises the
+reverse proxy, the served assets and the server env's pyvis, none of which the
+offline suite can reach:
+
+```bash
+ECONETOOL_DEPLOY_URL=https://laguna.ku.lt/EconetPy/     pytest test_live_deploy.py -q
+```
+
+Four checks: the Shiny page is served; the WebSocket carries frames through
+nginx (a proxy missing the `Upgrade`/`Connection` headers or `proxy_buffering
+off` still serves HTML but exchanges nothing); server-rendered outputs arrive;
+and the pyvis canvas actually draws. It skips unless that variable is set, so
+it never runs in the normal suite.
 
 ## Troubleshooting
 
