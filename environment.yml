@@ -35,4 +35,16 @@ dependencies:
   - pip:
       # Renamed pyvis -> pyvis-optimized in v4.3.1; import name is still `pyvis`.
       # Tag v4.3.1 == commit d84e2931024f5d91b3fc1a969ea27596d29fcdb3 (tags are mutable).
+      #
+      # Verified compatible with BOTH v4.3.1 and v4.4.0 (EconetPy: 182 pass under
+      # 4.4.0 locally, 58 pass under 4.3.1 on the server; BowTie's pyvis tests:
+      # 21 pass under 4.4.0). A git+https requirement must name ONE ref, so this
+      # pins the version actually deployed on the server.
+      #
+      # WARNING: the `shiny` env is SHARED — on laguna by ~20 apps, and locally
+      # across projects. Sibling projects disagree (BowTie pins razinka::pyvis=4.2;
+      # the pyvis-master working copy is past v4.4.0), and the env can only hold
+      # one version: the last install wins. Bumping this pin moves that shared env
+      # for every consumer, so change it deliberately. AQUABC is the one consumer
+      # not yet tested above 4.2 — smoke it before any bump.
       - pyvis-optimized @ git+https://github.com/razinkele/pyvis.git@v4.3.1
