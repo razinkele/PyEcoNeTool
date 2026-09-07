@@ -225,10 +225,12 @@ ssh razinka@laguna.ku.lt 'cd /srv/shiny-server/EconetPy && \
   /opt/micromamba/envs/shiny/bin/python3 -c "import app"'
 ```
 
-**Version skew (shared env vs. local dev) — checked, currently clean.** The
-server runs `pandas 3.0.3` / `numpy 2.3.5` / `shinyswatch 0.11.0` and will get
-`pyvis-optimized 4.3.1`; local dev is on `pandas 2.3.3` / `numpy 2.4.3` /
-`shinyswatch 0.9.0` / `pyvis-optimized 4.4.0`. pandas 3.0 changes
+**Version skew (shared env vs. local dev) — checked, currently clean.**
+`pyvis-optimized` is aligned at **4.4.0** on both the server and locally, and
+`deploy.sh` now warns on every deploy if that drifts from the pin. The rest
+still differs: the server runs `pandas 3.0.3` / `numpy 2.3.5` /
+`shinyswatch 0.11.0`; local dev is on `pandas 2.3.3` / `numpy 2.4.3` /
+`shinyswatch 0.9.0`. pandas 3.0 changes
 copy-on-write and string-dtype defaults, so this was verified rather than
 assumed: the core suite was run against the server interpreter on 2026-09-06
 and passed **89/89** (`test_network_analysis.py` excluded — it needs

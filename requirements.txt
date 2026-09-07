@@ -10,7 +10,8 @@ networkx>=3.0
 # razinkele fork; not on PyPI. Requires git on PATH at install time.
 # The distribution was renamed pyvis -> pyvis-optimized in v4.3.1, so the
 # requirement name must be pyvis-optimized; the import name is still `pyvis`.
-# Tag v4.3.1 == commit d84e2931024f5d91b3fc1a969ea27596d29fcdb3 (tags are mutable).
+# Tag v4.4.0 == commit bee1467e90eeedd3f6878b167d0ae21ad2807069 (tags are mutable;
+# re-verify this if the tag is ever moved).
 # The `shiny` env is SHARED — on laguna by ~20 apps, locally across projects —
 # and holds ONE version, so this pin is effectively cross-project. Seven apps
 # import pyvis (BowTie, EconetPy, EVA, MosaicSES, NiDSES, osmose, SESPy);

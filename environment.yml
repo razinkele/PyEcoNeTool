@@ -44,5 +44,6 @@ dependencies:
       # v4.4.0 verified before bumping: additive changes plus one breaking one,
       # `require Python >=3.10` — satisfied (server runs 3.13.14). No app
       # hardcodes the bundled `lib/vis-<ver>/` path, so the vis-network
-      # 10.0.2 -> 10.1.2 bundle move is safe. Tags are mutable; re-verify if moved.
+      # 10.0.2 -> 10.1.2 bundle move is safe.
+      # Tag v4.4.0 == commit bee1467e90eeedd3f6878b167d0ae21ad2807069 (tags are mutable).
       - pyvis-optimized @ git+https://github.com/razinkele/pyvis.git@v4.4.0
