@@ -27,9 +27,14 @@ if not DEPLOY_URL:
 from playwright.sync_api import sync_playwright  # noqa: E402
 
 # Shiny's first paint behind a proxy is dominated by the server cold-starting a
-# worker; be generous rather than flaky on a loaded box.
+# worker; be generous rather than flaky on a loaded box. GOTO_TIMEOUT_MS in
+# particular must not be hardcoded: a developer machine busy with other browsers
+# and a syncing OneDrive can take minutes to paint a page the server returns in
+# under a second, and a hardcoded 60s turns that into a false regression signal.
+# (Same lesson as test_live_smoke.py's ECONETOOL_APP_READY_TIMEOUT.)
 LOAD_WAIT_MS = int(os.environ.get("ECONETOOL_DEPLOY_LOAD_MS", "12000"))
 RENDER_WAIT_MS = int(os.environ.get("ECONETOOL_DEPLOY_RENDER_MS", "15000"))
+GOTO_TIMEOUT_MS = int(os.environ.get("ECONETOOL_DEPLOY_GOTO_TIMEOUT_MS", "180000"))
 
 
 @pytest.fixture(scope="module")
@@ -45,7 +50,7 @@ def live_page():
         frames = {"n": 0}
         page.on("websocket", lambda ws: ws.on(
             "framereceived", lambda _: frames.__setitem__("n", frames["n"] + 1)))
-        page.goto(DEPLOY_URL, wait_until="domcontentloaded", timeout=60_000)
+        page.goto(DEPLOY_URL, wait_until="domcontentloaded", timeout=GOTO_TIMEOUT_MS)
         page.wait_for_timeout(LOAD_WAIT_MS)
         yield page, frames
         browser.close()
