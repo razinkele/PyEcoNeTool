@@ -1,5 +1,40 @@
 # EconetPy Audit Remediation #3 Implementation Plan
 
+## STATUS: COMPLETE (verified 2026-09-07)
+
+**All 45 tasks landed. The `- [ ]` checkboxes below were never ticked during
+execution — do not read them as outstanding work.** The commit map here and the
+`audit3-*` tags are the source of truth for what was done.
+
+Verified at `audit3-complete-2-g72aea3f`: full suite **182 passed, 1 skipped**
+(the live smoke is opt-in via `ECONETOOL_LIVE_SMOKE=1`); `import app` OK;
+`deploy/*.sh` parse. Separately re-run against the production interpreter
+(pandas 3.0.3 / numpy 2.3.5) — core suite 89/89 — and against the *pinned*
+`pyvis-optimized 4.3.1` — viz + structure suite 58/58. That last check matters
+because local dev sits on 4.4.0 while the pin and the server are on 4.3.1.
+
+| Phase | Tasks | Landed in | Tag |
+|---|---|---|---|
+| 1 — Data integrity & startup honesty | 1–8 | `ef59542` `fab7c3b` `8e3a3ee` `e92dd12` `eb5865a` `f3cadd5` `c587e6b` `a9ceaf6` `ba1d651` | `audit3-phase1` |
+| 2 — Flux & keystoneness presentation | 10–14 | `c04b7a4` `6cfcd25` `f0f3822` `fb49148` `6997e00` `dcbe3d0` | `audit3-phase2` |
+| 3 — Test integrity | 16–23 | `f9327c0` `4f71a3a` `b43d7ab` `569eb2c` `fc85f21` `a2586d2` `940b578` `dd28170` | `audit3-phase3` |
+| 4 — Feedback path | 25–29 | `7e347b0` `aab7d63` `b5df547` `a6b5ee1` `974ba1b` | `audit3-phase4` |
+| 5 — Deployment | 31–36 | `2bbd49c` `65b2de2` `64c2f8b` `460194b` `7e474be` `6116796` `d38b7e7` | `audit3-phase5` |
+| 6 — Remaining UI & latent items | 38–43 | `e142674` `8ccbdd4` `5370c53` `5858b0d` `cc0ece4` `366aa80` `3bd8366` `e0ed602` | `audit3-phase6` |
+| Post-Phase-6 live smoke | 45 | `7d403e7` `c965a93` | `audit3-complete` |
+
+Tasks 9, 15, 24, 30, 37 and 44 are the per-phase gates; each is recorded by the
+corresponding tag rather than by a code commit.
+
+**Superseded since completion.** Phase 5 (Tasks 31–36) hardened a `deploy.sh`
+that targeted a systemd unit on port 8000 — an arrangement that did not exist on
+the server. That script was replaced wholesale in `72aea3f` by the Shiny Server
+deployment under `deploy/`; see `DEPLOYMENT.md`. Phase 5's tasks are historically
+complete but the artifact they modified is gone.
+
+---
+
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Close the confirmed deep-review findings that remediation #2 left open — startup honesty and data integrity, flux/keystoneness presentation correctness, tests that cannot fail on the bug they guard, the feedback path, deployment, and the remaining UI and latent items.
