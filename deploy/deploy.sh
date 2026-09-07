@@ -127,7 +127,26 @@ ssh "$SERVER" "cd '$APP_DIR' && '$PYTHON' load_data.py"
 echo "==> Import smoke"
 ssh "$SERVER" "cd '$APP_DIR' && '$PYTHON' -c 'import app; print(\"import OK\")'"
 
-# 7. Reload: Shiny Server restarts an app's workers when restart.txt changes.
+# 7. Pin drift check. The shared env is upgraded out-of-band and by sudo, so
+#    requirements.txt can name a version the server does not have — a silent
+#    dev/prod skew that makes local test results stop predicting production.
+#    Warn loudly rather than fail: the env is shared and deliberately managed
+#    separately, so a mismatch is a fact to surface, not a deploy to block.
+PINNED="$(grep -o "pyvis.git@v[0-9.]*" requirements.txt | head -1 | cut -d@ -f2)"
+INSTALLED="$(ssh "$SERVER" "'$PYTHON' -c 'import pyvis; print(pyvis.__version__)'" 2>/dev/null)"
+if [ -n "$PINNED" ] && [ -n "$INSTALLED" ] && [ "${PINNED#v}" != "$INSTALLED" ]; then
+  echo ""
+  echo "  !! pyvis PIN DRIFT: requirements.txt pins ${PINNED}, server has ${INSTALLED}"
+  echo "     The app is being deployed against a version it is not pinned to."
+  echo "     Fix (needs sudo on the server) - see DEPLOYMENT.md step 1:"
+  echo "       sudo env PIP_NO_CACHE_DIR=1 ${PYTHON%/*}/pip install \\"
+  echo "         \"pyvis-optimized @ git+https://github.com/razinkele/pyvis.git@${PINNED}\""
+  echo ""
+else
+  echo "==> pyvis pin OK (${INSTALLED:-unknown})"
+fi
+
+# 8. Reload: Shiny Server restarts an app's workers when restart.txt changes.
 ssh "$SERVER" "touch '$APP_DIR/restart.txt'"
 
 echo "==> Done. ${APP_DIR} updated to ${VERSION}; Shiny Server reloads on next request."
