@@ -362,3 +362,31 @@ def test_render_network_iframe_applies_same_height_fix_and_respects_requested_he
         "the live iframe srcdoc must carry the same html/body height fix "
         "as the download path, or the on-screen graph still collapses"
     )
+
+
+@pytest.mark.parametrize("builder", ["topology", "flux"])
+def test_functional_group_colours_reach_the_rendered_network(builder):
+    """Each node is in a vis-network group (its functional group), and
+    pyvis ignores a node's own colour when it has a group. So the app's
+    colour per functional group must be defined on the group itself, or
+    the network shows vis-network's default palette and no longer matches
+    the dashboard legend."""
+    import warnings
+    from network_viz import get_functional_group_colors
+    G = nx.DiGraph([("Alga", "Snail"), ("Snail", "Crab")])
+    fgs = ["Phytoplankton", "Benthos", "Benthos"]
+    colors, color_map = get_functional_group_colors(fgs)
+    kwargs = dict(species_names=list(G.nodes()), functional_groups=fgs,
+                  biomass=np.array([3.0, 2.0, 1.0]), colors=colors)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")  # pyvis warns when it drops a node colour
+        if builder == "topology":
+            net = create_topology_network(G, **kwargs)
+        else:
+            net = create_flux_network(G, flux_matrix=nx.to_numpy_array(G), **kwargs)
+    html = net.generate_html()
+    m = re.search(r'"groups":\s*(\{.*?\}\s*\})', html, re.S)
+    assert m, "no vis-network groups block in the rendered options"
+    for group, colour in color_map.items():
+        assert re.search(rf'"{group}":\s*\{{[^}}]*"color":\s*"{colour}"', m.group(1)), \
+            f"group {group!r} is not coloured {colour!r} in the rendered network"

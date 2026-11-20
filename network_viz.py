@@ -54,6 +54,13 @@ def _add_styled_nodes(
         else:
             y_positions[finite_tl] = 0.0
 
+    # Colour lives on the vis-network group, not the node: pyvis ignores a
+    # node's own colour once it has a group, which made the network fall back
+    # to vis-network's default palette and stop matching the dashboard legend.
+    for group, colour in zip(functional_groups, colors):
+        if group not in net.groups:
+            net.set_group(group, color=colour)
+
     # Add nodes
     nodes = list(G.nodes())
     for i, node in enumerate(nodes):
@@ -68,7 +75,6 @@ def _add_styled_nodes(
             node,
             label=species_names[i],
             title=title,
-            color=colors[i],
             size=node_size,
             x=None,  # Let physics determine X position
             y=y_positions[i],
