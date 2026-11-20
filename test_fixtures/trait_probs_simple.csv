@@ -1,0 +1,6 @@
+"","Phytoplankton","Zooplankton","Small_fish","Benthic_invertebrate","Predatory_fish"
+"Phytoplankton",0,0,0,0,0
+"Zooplankton",0,0,0,0,0
+"Small_fish",0.05,0.05,0,0.5,0.05
+"Benthic_invertebrate",0.8,0.2,0.2,0,0.05
+"Predatory_fish",0.05,0.05,0.5,0.5,0

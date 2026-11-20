@@ -1,0 +1,6 @@
+species,MS,FS,MB,EP,PR
+Phytoplankton,MS1,FS0,MB2,EP4,PR0
+Zooplankton,MS2,FS6,MB4,EP3,PR0
+Small_fish,MS3,FS1,MB5,EP4,PR0
+Benthic_invertebrate,MS3,FS5,MB3,EP2,PR6
+Predatory_fish,MS5,FS1,MB5,EP4,PR0
