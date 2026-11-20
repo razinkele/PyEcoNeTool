@@ -16,3 +16,10 @@ never by the Python port** — regenerate only from R, never from
 - Orientation: rows = consumers, columns = resources (R's `[consumer,
   resource]`), i.e. the transpose of EconetPy's rows-are-prey matrices. The
   port is compared with its size extension switched off.
+
+## `trait_table_*.csv` — the five R probability tables
+
+`MS_MS, FS_MS, MB_MB, EP_MS, PR_MS` exactly as defined in the same R file
+(sha256 `c6d61a2e…8196`), exported with `write.csv(get(name))` on
+2026-11-20. Compared cell by cell, so rows no example exercises (FS3, FS7,
+PR1, PR2, PR4) are checked too.

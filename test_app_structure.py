@@ -1,5 +1,6 @@
 """Structural guards on app.py (no runtime Shiny needed)."""
 import ast
+import pytest
 import pathlib
 import importlib
 import logging
@@ -814,3 +815,40 @@ def test_editor_patch_values_match_the_column_dtype():
 
 def test_editor_patch_fn_coerces_values():
     assert "_coerce_patch_value" in _calls_in(_server_fn("_reject_key_edits"))
+
+
+def test_editor_patch_integer_columns_accept_only_whole_numbers():
+    """BalticFW's nbY is int64: a float written into it crashed data_patched()."""
+    import pandas as pd
+    import pytest
+    import app
+    info = pd.DataFrame({"species": ["A"], "nbY": pd.Series([37], dtype="int64")})
+    v = app._coerce_patch_value(info, "nbY", "2")
+    assert v == 2 and isinstance(v, int)
+    info.loc[0, "nbY"] = v                         # must not raise
+    with pytest.raises(ValueError):
+        app._coerce_patch_value(info, "nbY", "2.5")
+
+
+@pytest.mark.parametrize("text", ["1,000", "12,345,678", "inf", "-inf", "nan", "1e400"])
+def test_editor_patch_rejects_ambiguous_or_non_finite_numbers(text):
+    import pandas as pd
+    import pytest as _pytest
+    import app
+    info = pd.DataFrame({"species": ["A"], "meanB": [1.0]})
+    with _pytest.raises(ValueError):
+        app._coerce_patch_value(info, "meanB", text)
+
+
+def test_rejected_edit_returns_a_json_serialisable_original():
+    """The patch function's return value is sent to the browser as JSON; a
+    rejected numeric edit returned numpy int64/float64 and the JSON encoder
+    crashed the session."""
+    import json
+    import numpy as np
+    import app
+    for v in (np.int64(37), np.float64(1.5), "Benthos", np.str_("x")):
+        json.dumps(app._json_native(v))
+    assert app._json_native(np.int64(37)) == 37
+    src = ast.unparse(_server_fn("_reject_key_edits"))
+    assert "_json_native(" in src

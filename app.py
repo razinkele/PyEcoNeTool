@@ -15,6 +15,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from pathlib import Path
 import pickle
+import re
 import time
 import functools
 import threading
@@ -583,6 +584,11 @@ def _placeholder_banner():
     )
 
 
+def _json_native(value):
+    """numpy scalars -> plain Python, so a patch result can be sent as JSON."""
+    return value.item() if isinstance(value, np.generic) else value
+
+
 def _coerce_patch_value(info, col_name, value):
     """Return an edited Data Editor cell as the column's own type.
 
@@ -590,12 +596,24 @@ def _coerce_patch_value(info, col_name, value):
     the original column; pandas >= 3 refuses text in a float column, which
     crashed the session on any numeric edit. Raises ValueError for text that
     is not a number in a numeric column."""
-    if col_name in info.columns and pd.api.types.is_numeric_dtype(info[col_name]):
-        try:
-            return float(str(value).strip().replace(",", "."))
-        except ValueError:
-            raise ValueError(f"'{value}' is not a number") from None
-    return value
+    if not (col_name in info.columns and pd.api.types.is_numeric_dtype(info[col_name])):
+        return value
+    text = str(value).strip()
+    # "1,000" could be a thousands separator or a decimal comma: refuse rather
+    # than guess (a silent 1000x error). A single decimal comma ("4,5") is fine.
+    if re.fullmatch(r"[+-]?\d{1,3}(,\d{3})+", text):
+        raise ValueError(f"'{value}' is ambiguous; write it without separators (e.g. 1000 or 1.5)")
+    try:
+        number = float(text.replace(",", "."))
+    except ValueError:
+        raise ValueError(f"'{value}' is not a number") from None
+    if not np.isfinite(number):
+        raise ValueError(f"'{value}' is not a finite number")
+    if pd.api.types.is_integer_dtype(info[col_name]):
+        if not number.is_integer():
+            raise ValueError(f"'{value}' is not a whole number (column holds integers)")
+        return int(number)
+    return number
 
 
 def _valid_trait_threshold(value):
@@ -1930,7 +1948,7 @@ Keystoneness Analysis Summary:
         info = current_species_info()
         columns = list(info.columns)
         col_name = columns[patch["column_index"]] if patch["column_index"] < len(columns) else None
-        original = info.iloc[patch["row_index"]][col_name] if col_name else patch["value"]
+        original = _json_native(info.iloc[patch["row_index"]][col_name]) if col_name else patch["value"]
         if col_name in ("species", "fg"):
             return original
         try:

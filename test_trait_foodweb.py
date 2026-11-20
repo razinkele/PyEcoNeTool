@@ -239,3 +239,15 @@ def test_missing_required_trait_column_rejected():
 def test_duplicate_species_rejected():
     with pytest.raises(ValueError, match="[Dd]uplicate"):
         parse_trait_file(_b(FOUR + "Fish,MS5,FS1,MB5,EP2,PR0\n"))
+
+
+@pytest.mark.parametrize("name", ["MS_MS", "FS_MS", "MB_MB", "EP_MS", "PR_MS"])
+def test_tables_match_r_cell_by_cell(name):
+    """Every cell of every table, including rows no example uses (FS3, FS7,
+    PR1, PR2, PR4), against the tables exported from R."""
+    import trait_foodweb
+    R = pd.read_csv(HERE / "test_fixtures" / f"trait_table_{name}.csv", index_col=0)
+    port = getattr(trait_foodweb, name)
+    assert list(port) == list(R.index)
+    for row in R.index:
+        assert port[row] == pytest.approx(R.loc[row].tolist()), f"{name}[{row}]"
