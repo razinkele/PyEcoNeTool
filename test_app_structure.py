@@ -739,3 +739,11 @@ def test_every_local_module_app_imports_is_shipped_by_deploy():
     missing = sorted(f"{m}.py" for m in local if f"{m}.py" not in runtime)
     assert not missing, f"deploy.sh RUNTIME is missing {missing}"
     assert "examples" in runtime  # the example picker reads examples/*.csv
+
+
+def test_ecopath_handler_uses_parser_and_reports_valueerror():
+    fn = _server_fn("_import_ecopath")
+    assert "parse_ecopath_db" in _calls_in(fn)
+    handlers = [h for n in ast.walk(fn) if isinstance(n, ast.Try) for h in n.handlers]
+    assert any(isinstance(h.type, ast.Name) and h.type.id == "ValueError" for h in handlers)
+    assert "_apply_dataset" in _calls_in(fn)

@@ -245,7 +245,7 @@ Reproduce that check after any pandas- or numpy-touching change:
 
 ```bash
 ssh razinka@laguna.ku.lt 'rm -rf ~/econetpy-testcheck && mkdir ~/econetpy-testcheck'
-scp app.py network_analysis.py network_viz.py flux_calculations.py     load_data.py data_import.py feedback_reporter.py conftest.py test_*.py BalticFW_*     VERSION environment.yml requirements.txt     razinka@laguna.ku.lt:~/econetpy-testcheck/
+scp app.py network_analysis.py network_viz.py flux_calculations.py     load_data.py data_import.py ecopath_import.py feedback_reporter.py conftest.py test_*.py BalticFW_*     VERSION environment.yml requirements.txt     razinka@laguna.ku.lt:~/econetpy-testcheck/
 scp -r examples www razinka@laguna.ku.lt:~/econetpy-testcheck/
 ssh razinka@laguna.ku.lt 'cd ~/econetpy-testcheck &&   /opt/micromamba/envs/shiny/bin/python3 -m pytest -q --ignore=test_network_analysis.py'
 ssh razinka@laguna.ku.lt 'rm -rf ~/econetpy-testcheck'

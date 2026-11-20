@@ -61,3 +61,33 @@ equivalent order check.
   round-trip) run through both TL methods, topological + node-weighted
   indicators, `fluxing`, MTI, keystoneness without error. Template (all
   zeros, no links) must either work or be rejected with a clear message.
+
+## v2 addendum (2026-11-20): Excel + Ecopath databases
+
+- **Excel:** either upload field accepts `.xlsx` (first sheet; detected by the
+  zip magic bytes, read with openpyxl, already in the shared env). Same parser
+  and validation as CSV. `.xls` is not supported (would need xlrd).
+- **Shared validation:** `data_import.build_food_web(M, info)` now holds every
+  value/structure check; CSV, Excel and Ecopath routes all end there.
+- **Ecopath (`ecopath_import.py`):** reads `EcopathGroup` + `EcopathDietComp`
+  (schema identical in `.ewemdb` and `.eweaccdb`) with mdbtools (server) or the
+  Access ODBC driver (Windows). `Diet > 0` → prey → predator link; PreyID 0
+  (import) and groups outside the model ignored.
+  - Groups whose input biomass is missing (`-9999`) or 0 are left out with a
+    note: those values are Ecopath mass-balance *outputs*, which the database
+    does not store, and every analysis needs biomass > 0. Builder's call: no
+    mass-balance solver in v2.
+  - Functional group from EwE `Type` (2 detritus, 1 producer, 0<t<1
+    mixotroph) + group-name stems; `GroupIsFish`/`GroupIsInvert` ignored (set
+    to 1 for every group in real models). Unmatched consumers become
+    "Unclassified consumers" and are listed. Birds/mammals are approximated as
+    ectotherm vertebrates (no endotherm type in the flux model) and listed.
+  - Body mass / met.types / efficiency: per-fg defaults from the Baltic
+    dataset's conventions (`FG_DEFAULTS`), editable in the Data Editor.
+  - Biomass is taken as the Ecopath input (t/km²) without unit conversion.
+  - Verified on six real models (two `.ewemdb`, four `.eweaccdb`) both locally
+    (ODBC) and on the server (mdbtools): import + every analysis. Real model
+    files are not committed; `ECONETPY_EWE_SAMPLES` points the test at them.
+- **Still open:** ECOPATH GUI exports (needs a sample export to build
+  against), and name-independent classification (taxonomic lookup) — that
+  belongs with trait research.

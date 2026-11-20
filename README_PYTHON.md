@@ -252,11 +252,11 @@ Python Shiny doesn't have a direct equivalent to R's `bs4Dash`. The Python versi
 
 ### 3. Not Yet Implemented
 
-- ✅ Data upload UI — CSV pair (network + species info), bundled examples, reset to default (`data_import.py`, **Data Import** page)
-- ⏳ Excel and RData upload
+- ✅ Data upload UI — network + species info as CSV or .xlsx, bundled examples, reset to default (`data_import.py`, **Data Import** page)
+- ✅ ECOPATH native model databases (`.ewemdb`, `.eweaccdb`) via mdbtools / Access ODBC (`ecopath_import.py`)
+- ⏳ ECOPATH GUI exports (Basic estimates + Diet composition sheets); RData upload (deliberately not supported: unsafe to load)
 - ⏳ Live data editor with network regeneration
 - ⏳ All export options
-- ⏳ ECOPATH format support
 
 ## 🔄 Differences from R Version
 
@@ -320,7 +320,7 @@ pip install --upgrade -r requirements.txt
 ### High Priority
 
 1. **Full fluxweb implementation**: Port or wrap R's fluxweb package
-2. **Data upload UI**: CSV done; Excel / ECOPATH still to do
+2. **Data upload UI**: CSV, Excel and ECOPATH databases done; ECOPATH GUI exports still to do
 3. **Live data editing**: Real-time network updates
 
 ### Medium Priority

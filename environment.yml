@@ -26,6 +26,7 @@ dependencies:
   - shinyswatch>=0.4.0
   - networkx>=3.0
   - pandas>=2.0.0
+  - openpyxl>=3.1                # .xlsx uploads (Data Import page)
   - numpy>=2.0.0
   - scipy>=1.10.0
   - matplotlib>=3.7.0

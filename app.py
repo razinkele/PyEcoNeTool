@@ -47,6 +47,7 @@ from network_viz import (
 )
 from feedback_reporter import collect_system_context, submit_feedback_async
 from data_import import parse_food_web, load_example, EXAMPLE_DATASETS
+from ecopath_import import parse_ecopath_db, ACCEPTED_EXTENSIONS as ECOPATH_EXTENSIONS
 
 import logging
 logging.basicConfig(
@@ -562,7 +563,12 @@ keystoneness_ui = lambda: ui.div(
 )
 
 _FORMAT_GUIDE = ui.HTML("""
-<p>Upload <strong>two CSV files</strong> (comma, semicolon or tab separated; UTF-8):</p>
+<p>Either load an <strong>Ecopath with Ecosim model database</strong>
+(<code>.ewemdb</code>, <code>.eweaccdb</code>): the groups, biomasses and diet links are read
+from it, and functional groups, body masses, metabolic types and efficiencies are estimated
+(the import notes say how; review them in the Data Editor).</p>
+<p>Or upload <strong>two files</strong>, each CSV (comma, semicolon or tab separated; UTF-8)
+or Excel <code>.xlsx</code> (first sheet):</p>
 <h6>1. Network (adjacency matrix)</h6>
 <ul>
   <li>Square matrix. The first column holds the species names; the header row repeats them.</li>
@@ -598,11 +604,17 @@ def import_ui():
         ),
         ui.card(
             ui.card_header("Upload your own food web"),
-            ui.input_file("upload_network", "Network CSV (adjacency matrix)",
-                          accept=[".csv", ".txt"], multiple=False),
-            ui.input_file("upload_info", "Species information CSV",
-                          accept=[".csv", ".txt"], multiple=False),
+            ui.input_file("upload_network", "Network (adjacency matrix): CSV or .xlsx",
+                          accept=[".csv", ".txt", ".xlsx"], multiple=False),
+            ui.input_file("upload_info", "Species information: CSV or .xlsx",
+                          accept=[".csv", ".txt", ".xlsx"], multiple=False),
             ui.input_action_button("import_upload", "Load uploaded data", class_="btn-primary"),
+        ),
+        ui.card(
+            ui.card_header("Ecopath with Ecosim model"),
+            ui.input_file("upload_ecopath", "EwE model database",
+                          accept=list(ECOPATH_EXTENSIONS), multiple=False),
+            ui.input_action_button("import_ecopath", "Load Ecopath model", class_="btn-primary"),
         ),
         ui.card(
             ui.card_header("Example datasets"),
@@ -619,7 +631,7 @@ def import_ui():
             ui.card_header("File format"),
             _FORMAT_GUIDE,
         ),
-        col_widths=[12, 6, 6, 12],
+        col_widths=[12, 4, 4, 4, 12],
     )
 
 
@@ -891,6 +903,7 @@ def server(input, output, session):
     current_species_info = reactive.Value(species_info)
     flux_results = reactive.Value(None)
     current_dataset_label = reactive.Value(_default_dataset_label())
+    import_notes = reactive.Value(())
 
     # ========================================================================
     # DATA IMPORT TAB
@@ -899,12 +912,13 @@ def server(input, output, session):
     # the module-level network/species_info or writes BalticFW.pkl, so one
     # user's upload can never leak into another session.
 
-    def _apply_dataset(G, info, label):
+    def _apply_dataset(G, info, label, notes=()):
         _assert_aligned(G, info)
         flux_results.set(None)
         current_network.set(G)
         current_species_info.set(info)
         current_dataset_label.set(label)
+        import_notes.set(tuple(notes))
         ui.notification_show(
             f"Loaded {label}: {G.number_of_nodes()} species, {G.number_of_edges()} links.",
             type="message", duration=5,
@@ -933,6 +947,28 @@ def server(input, output, session):
         _apply_dataset(G, info, f"uploaded data ({net['name']} + {inf['name']})")
 
     @reactive.effect
+    @reactive.event(input.import_ecopath)
+    def _import_ecopath():
+        files = input.upload_ecopath()
+        if not files:
+            ui.notification_show("Choose an Ecopath model database first.",
+                                 type="warning", duration=5)
+            return
+        f = files[0]
+        try:
+            G, info, notes = parse_ecopath_db(Path(f["datapath"]), name=f["name"])
+        except ValueError as exc:
+            ui.notification_show(f"Import failed: {exc}", type="error", duration=10)
+            return
+        except Exception:  # noqa: BLE001 — upload boundary: an uncaught error here ends the session
+            logger.exception("Unexpected error reading Ecopath database %r", f.get("name"))
+            ui.notification_show(
+                "Import failed: the database could not be read. Check it is an Ecopath "
+                "with Ecosim 6 model file.", type="error", duration=10)
+            return
+        _apply_dataset(G, info, f"Ecopath model ({f['name']})", notes)
+
+    @reactive.effect
     @reactive.event(input.load_example)
     def _load_example():
         key = input.example_dataset()
@@ -959,6 +995,8 @@ def server(input, output, session):
             ui.tags.br(),
             f"{G.number_of_nodes()} species, {G.number_of_edges()} links, "
             f"{info['fg'].nunique()} functional groups",
+            ui.tags.ul(*[ui.tags.li(n) for n in import_notes()],
+                       class_="small text-muted mt-2 mb-0") if import_notes() else None,
         )
 
     @reactive.calc

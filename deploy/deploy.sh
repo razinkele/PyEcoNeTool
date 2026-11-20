@@ -50,6 +50,7 @@ RUNTIME=(
   flux_calculations.py
   load_data.py
   data_import.py
+  ecopath_import.py
   feedback_reporter.py
   BalticFW_network.graphml
   BalticFW_species_info.csv

@@ -242,3 +242,33 @@ def test_closed_loop_unreachable_from_basal_rejected():
            'Fish,0,0,0,1\nSeal,0,0,1,0\n')
     with pytest.raises(ValueError, match="Fish|Seal"):
         parse_food_web(_b(net), _b(INFO_4))
+
+
+# --- Excel -----------------------------------------------------------------------
+
+def _xlsx(csv_text: str, header: bool = True) -> bytes:
+    df = pd.read_csv(io.StringIO(csv_text), header=None, dtype=str, keep_default_na=False)
+    buf = io.BytesIO()
+    df.to_excel(buf, header=False, index=False, engine="openpyxl")
+    return buf.getvalue()
+
+
+def test_xlsx_files_parse_like_csv():
+    G, info = parse_food_web(_xlsx(NET_3), _xlsx(INFO_3))
+    assert set(G.edges()) == {("Phyto", "Zoo"), ("Zoo", "Fish")}
+    assert info["meanB"].tolist() == [5000.0, 800.0, 100.0]
+
+
+def test_xlsx_with_numeric_cells_parses():
+    net = pd.DataFrame([[0, 1, 0], [0, 0, 1], [0, 0, 0]],
+                       index=["Phyto", "Zoo", "Fish"], columns=["Phyto", "Zoo", "Fish"])
+    buf = io.BytesIO(); net.to_excel(buf, engine="openpyxl")
+    info = pd.read_csv(io.StringIO(INFO_3))
+    buf2 = io.BytesIO(); info.to_excel(buf2, index=False, engine="openpyxl")
+    G, df = parse_food_web(buf.getvalue(), buf2.getvalue())
+    assert G.number_of_edges() == 2 and df["bodymasses"].iloc[0] == pytest.approx(1e-5)
+
+
+def test_corrupt_xlsx_rejected_with_valueerror():
+    with pytest.raises(ValueError, match="Excel"):
+        parse_food_web(b"PK\x03\x04 not really a zip", _b(INFO_3))

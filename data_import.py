@@ -83,8 +83,27 @@ def _sniff_sep(text: str) -> str:
     return sep if counts[sep] > 0 else ","
 
 
+_XLSX_MAGIC = b"PK\x03\x04"  # .xlsx is a zip container
+
+
+def _read_excel(data: bytes, what: str) -> pd.DataFrame:
+    try:
+        raw = pd.read_excel(io.BytesIO(data), sheet_name=0, header=None, dtype=str,
+                            engine="openpyxl")
+    except Exception as exc:  # openpyxl raises a zoo of types on bad files
+        raise ValueError(f"Could not read the {what} file as an Excel workbook (.xlsx): {exc}") from None
+    raw = raw.dropna(how="all").dropna(axis=1, how="all").fillna("")
+    if raw.empty:
+        raise ValueError(f"The {what} workbook's first sheet is empty.")
+    return raw.astype(str).apply(lambda col: col.str.strip()).reset_index(drop=True)
+
+
 def _read_table(src, what: str) -> tuple[pd.DataFrame, str]:
-    text = _decode(_read_bytes(src, what), what)
+    data = _read_bytes(src, what)
+    if data[:4] == _XLSX_MAGIC:
+        # Excel stores numbers natively, so no decimal-comma handling: report ",".
+        return _read_excel(data, what), ","
+    text = _decode(data, what)
     sep = _sniff_sep(text)
     try:
         raw = pd.read_csv(io.StringIO(text), sep=sep, header=None, dtype=str,
@@ -198,18 +217,6 @@ def _parse_species(src) -> pd.DataFrame:
                 f"Column '{col}' must be a number; got {info[col].iat[i]!r} for {info['species'].iat[i]!r}.")
         info[col] = num.astype(float)
 
-    for col in ("meanB", "bodymasses"):
-        bad = info[col] <= 0
-        if bad.any():
-            sp = info.loc[bad, "species"].iat[0]
-            raise ValueError(f"Column '{col}' must be greater than 0 (check {sp!r}).")
-    bad = (info["efficiencies"] <= 0) | (info["efficiencies"] > 1)
-    if bad.any():
-        sp = info.loc[bad, "species"].iat[0]
-        raise ValueError(f"Column 'efficiencies' must be in (0, 1] (check {sp!r}).")
-
-    validate_met_types(info["met.types"].tolist(), context="the species file")
-
     # Optional extra columns: keep; make fully-numeric ones numeric.
     for col in info.columns:
         if col in REQUIRED_COLUMNS:
@@ -246,22 +253,35 @@ def _check_energy_reaches_every_species(G: nx.DiGraph) -> None:
 
 # --- public ------------------------------------------------------------------
 
-def parse_food_web(network_src, info_src) -> tuple[nx.DiGraph, pd.DataFrame]:
-    """Parse an adjacency CSV + species CSV into an aligned ``(G, info)``.
+def _check_species_values(info: pd.DataFrame) -> None:
+    for col in ("meanB", "bodymasses"):
+        bad = ~(info[col] > 0)
+        if bad.any():
+            sp = info.loc[bad, "species"].iat[0]
+            raise ValueError(f"Column '{col}' must be greater than 0 (check {sp!r}).")
+    bad = ~((info["efficiencies"] > 0) & (info["efficiencies"] <= 1))
+    if bad.any():
+        sp = info.loc[bad, "species"].iat[0]
+        raise ValueError(f"Column 'efficiencies' must be in (0, 1] (check {sp!r}).")
+    validate_met_types(info["met.types"].tolist(), context="the species data")
 
-    Each source may be bytes, a path, or a binary file object.
-    Raises ``ValueError`` (user-readable) on any problem.
-    """
-    M = _parse_network(network_src)
-    info = _parse_species(info_src)
 
+def build_food_web(M: pd.DataFrame, info: pd.DataFrame) -> tuple[nx.DiGraph, pd.DataFrame]:
+    """Validate an already-typed 0/1 matrix (rows = prey, columns = predators,
+    same labels in the same order) plus a typed species table, and return the
+    aligned ``(G, info)``. Shared by every import route."""
     names = M.index.tolist()
+    if len(names) > MAX_SPECIES:
+        raise ValueError(f"The network has too many species (limit {MAX_SPECIES}).")
     in_net, in_info = set(names), set(info["species"])
     if in_net != in_info:
         raise ValueError(
-            "The two files must list the same species. "
+            "The network and the species data must list the same species. "
             f"In network only: {_preview(in_net - in_info) or '-'}; "
-            f"in species file only: {_preview(in_info - in_net) or '-'}.")
+            f"in species data only: {_preview(in_info - in_net) or '-'}.")
+    if M.to_numpy().sum() == 0:
+        raise ValueError("The network has no feeding links (every cell is 0).")
+    _check_species_values(info)
 
     info = info.set_index("species").loc[names].reset_index()
     G = nx.from_pandas_adjacency(M, create_using=nx.DiGraph)
@@ -269,6 +289,16 @@ def parse_food_web(network_src, info_src) -> tuple[nx.DiGraph, pd.DataFrame]:
     if list(G.nodes()) != info["species"].tolist():  # defensive; from_pandas keeps order
         raise ValueError("Internal error: network and species order diverged.")
     return G, info
+
+
+def parse_food_web(network_src, info_src) -> tuple[nx.DiGraph, pd.DataFrame]:
+    """Parse an adjacency file + species file (CSV or .xlsx) into an aligned
+    ``(G, info)``.
+
+    Each source may be bytes, a path, or a binary file object.
+    Raises ``ValueError`` (user-readable) on any problem.
+    """
+    return build_food_web(_parse_network(network_src), _parse_species(info_src))
 
 
 def load_example(key: str) -> tuple[nx.DiGraph, pd.DataFrame]:

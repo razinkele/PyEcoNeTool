@@ -32,6 +32,7 @@ pyvis-optimized @ git+https://github.com/razinkele/pyvis.git@v5.0.0
 
 # Data Processing
 pandas>=2.0.0
+openpyxl>=3.1  # .xlsx uploads (Data Import page)
 numpy>=2.0.0
 
 # Scientific Computing
