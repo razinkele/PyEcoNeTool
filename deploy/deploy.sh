@@ -51,6 +51,7 @@ RUNTIME=(
   load_data.py
   data_import.py
   ecopath_import.py
+  trait_foodweb.py
   feedback_reporter.py
   BalticFW_network.graphml
   BalticFW_species_info.csv

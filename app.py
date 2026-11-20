@@ -48,6 +48,8 @@ from network_viz import (
 from feedback_reporter import collect_system_context, submit_feedback_async
 from data_import import parse_food_web, load_example, EXAMPLE_DATASETS
 from ecopath_import import parse_ecopath_db, ACCEPTED_EXTENSIONS as ECOPATH_EXTENSIONS
+from trait_foodweb import (parse_trait_file, load_trait_example, TRAIT_EXAMPLES,
+                           TRAIT_LABELS)
 
 import logging
 logging.basicConfig(
@@ -490,6 +492,7 @@ topology_ui = lambda: ui.div(
 )
 
 biomass_ui = lambda: ui.div(
+    ui.output_ui("biomass_placeholder_banner_biomass"),
     ui.layout_columns(
         ui.card(
             ui.card_header("Node-Weighted Indicators"),
@@ -507,7 +510,9 @@ biomass_ui = lambda: ui.div(
     )
 )
 
-fluxes_ui = lambda: ui.layout_sidebar(
+fluxes_ui = lambda: ui.div(
+    ui.output_ui("biomass_placeholder_banner_fluxes"),
+    ui.layout_sidebar(
         ui.sidebar(
             ui.h4("Flux Calculation"),
             ui.input_numeric(
@@ -538,8 +543,10 @@ fluxes_ui = lambda: ui.layout_sidebar(
             full_screen=True
         )
     )
+)
 
 keystoneness_ui = lambda: ui.div(
+    ui.output_ui("biomass_placeholder_banner_keystoneness"),
     ui.layout_columns(
         ui.card(
             ui.card_header("Keystoneness Summary"),
@@ -561,6 +568,53 @@ keystoneness_ui = lambda: ui.div(
         full_screen=True
     )
 )
+
+BIOMASS_PLACEHOLDER_TEXT = (
+    "Biomass values are placeholders (1.0 for every species) — these results are not meaningful.")
+
+
+def _placeholder_banner():
+    """Same look as the dashboard's example-network banner."""
+    return ui.div(
+        BIOMASS_PLACEHOLDER_TEXT,
+        class_="econetpy-placeholder-biomass-banner",
+        style=("background:#fff3cd; color:#664d03; border:1px solid #ffecb5; "
+               "border-radius:6px; padding:10px 16px; margin-bottom:12px; font-weight:600;"),
+    )
+
+
+def _coerce_patch_value(info, col_name, value):
+    """Return an edited Data Editor cell as the column's own type.
+
+    The DataGrid sends text, and ``data_patched()`` writes it straight into
+    the original column; pandas >= 3 refuses text in a float column, which
+    crashed the session on any numeric edit. Raises ValueError for text that
+    is not a number in a numeric column."""
+    if col_name in info.columns and pd.api.types.is_numeric_dtype(info[col_name]):
+        try:
+            return float(str(value).strip().replace(",", "."))
+        except ValueError:
+            raise ValueError(f"'{value}' is not a number") from None
+    return value
+
+
+def _valid_trait_threshold(value):
+    """The trait-link threshold if it is a number in [0, 1), else None."""
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return None
+    return v if np.isfinite(v) and 0 <= v < 1 else None
+
+
+def _trait_code_table():
+    rows = "".join(
+        f"<tr><td><code>{t}</code></td><td>"
+        + "; ".join(f"<code>{c}</code> {label}" for c, label in codes.items())
+        + "</td></tr>"
+        for t, codes in TRAIT_LABELS.items())
+    return f"<table class='table table-sm small'><tbody>{rows}</tbody></table>"
+
 
 _FORMAT_GUIDE = ui.HTML("""
 <p>Either load an <strong>Ecopath with Ecosim model database</strong>
@@ -590,6 +644,17 @@ Fish,0,0,0</pre>
       <code>ectotherm vertebrates</code>, <code>Other</code></li>
   <li><code>efficiencies</code> &ndash; assimilation efficiency, between 0 and 1</li>
 </ul>
+<h6>Trait-based food web (one file)</h6>
+<p>Columns <code>species, MS, FS, MB, EP, PR</code> (CSV or .xlsx). Links are inferred
+from the codes as in R EcoNeTool: the link probability is the smallest of five
+trait-matching probabilities, and a link exists when it is above the threshold.
+Optional columns <code>fg, meanB, bodymasses, met.types, efficiencies</code> are used when
+present (filled for every species); otherwise they are estimated, and without
+<code>meanB</code> every species gets a placeholder biomass of 1.0.
+The extension lets small (MS1–MS2) and extra-large (MS7) species eat; switch it off to
+reproduce R EcoNeTool exactly. The bundled R examples code plankton as EP4 (endobenthic
+in the current vocabulary), so some plankton feeders find no prey.</p>
+""" + _trait_code_table() + """
 <p>Templates: the <code>examples/</code> folder of the project repository
 (<code>*_network.csv</code> + <code>*_info.csv</code>). Uploaded data stays in your
 browser session only and is not stored on the server.</p>
@@ -617,6 +682,24 @@ def import_ui():
             ui.input_action_button("import_ecopath", "Load Ecopath model", class_="btn-primary"),
         ),
         ui.card(
+            ui.card_header("Trait-based food web"),
+            ui.input_file("upload_traits", "Species × trait codes: CSV or .xlsx",
+                          accept=[".csv", ".txt", ".xlsx"], multiple=False),
+            ui.input_action_button("import_traits", "Build from uploaded traits",
+                                   class_="btn-primary"),
+            ui.hr(),
+            ui.input_select("trait_example", "Or a bundled example",
+                            {k: label for k, (label, _) in TRAIT_EXAMPLES.items()}),
+            ui.input_action_button("load_trait_example_btn", "Build example",
+                                   class_="btn-secondary"),
+            ui.hr(),
+            ui.input_numeric("trait_threshold", "Link threshold (probability above)",
+                             value=0.05, min=0, max=0.99, step=0.05),
+            ui.input_checkbox("trait_extend_sizes",
+                              "Let small and extra-large species eat (extension; "
+                              "off = exactly as R EcoNeTool)", value=True),
+        ),
+        ui.card(
             ui.card_header("Example datasets"),
             ui.input_select(
                 "example_dataset", "Example",
@@ -631,7 +714,7 @@ def import_ui():
             ui.card_header("File format"),
             _FORMAT_GUIDE,
         ),
-        col_widths=[12, 4, 4, 4, 12],
+        col_widths=[12, 6, 6, 6, 6, 12],
     )
 
 
@@ -904,6 +987,7 @@ def server(input, output, session):
     flux_results = reactive.Value(None)
     current_dataset_label = reactive.Value(_default_dataset_label())
     import_notes = reactive.Value(())
+    biomass_placeholder = reactive.Value(False)
 
     # ========================================================================
     # DATA IMPORT TAB
@@ -912,13 +996,14 @@ def server(input, output, session):
     # the module-level network/species_info or writes BalticFW.pkl, so one
     # user's upload can never leak into another session.
 
-    def _apply_dataset(G, info, label, notes=()):
+    def _apply_dataset(G, info, label, notes=(), placeholder_biomass=False):
         _assert_aligned(G, info)
         flux_results.set(None)
         current_network.set(G)
         current_species_info.set(info)
         current_dataset_label.set(label)
         import_notes.set(tuple(notes))
+        biomass_placeholder.set(bool(placeholder_biomass))
         ui.notification_show(
             f"Loaded {label}: {G.number_of_nodes()} species, {G.number_of_edges()} links.",
             type="message", duration=5,
@@ -967,6 +1052,70 @@ def server(input, output, session):
                 "with Ecosim 6 model file.", type="error", duration=10)
             return
         _apply_dataset(G, info, f"Ecopath model ({f['name']})", notes)
+
+    def _threshold_error():
+        ui.notification_show("The link threshold must be a number from 0 up to "
+                             "(not including) 1.", type="error", duration=8)
+
+    @reactive.effect
+    @reactive.event(input.import_traits)
+    def _import_traits():
+        files = input.upload_traits()
+        if not files:
+            ui.notification_show("Choose a trait file first.", type="warning", duration=5)
+            return
+        threshold = _valid_trait_threshold(input.trait_threshold())
+        if threshold is None:
+            _threshold_error()
+            return
+        f = files[0]
+        try:
+            r = parse_trait_file(Path(f["datapath"]), threshold,
+                                 bool(input.trait_extend_sizes()))
+        except ValueError as exc:
+            ui.notification_show(f"Import failed: {exc}", type="error", duration=10)
+            return
+        except Exception:  # noqa: BLE001 — upload boundary: an uncaught error here ends the session
+            logger.exception("Unexpected error reading trait file %r", f.get("name"))
+            ui.notification_show("Import failed: the trait file could not be read. Check it "
+                                 "matches the format described below.", type="error", duration=10)
+            return
+        _apply_dataset(r.G, r.info, f"trait-based food web ({f['name']})", r.notes,
+                       r.placeholder_biomass)
+
+    @reactive.effect
+    @reactive.event(input.load_trait_example_btn)
+    def _load_trait_example():
+        threshold = _valid_trait_threshold(input.trait_threshold())
+        if threshold is None:
+            _threshold_error()
+            return
+        key = input.trait_example()
+        try:
+            r = load_trait_example(key, threshold, bool(input.trait_extend_sizes()))
+        except ValueError as exc:
+            ui.notification_show(f"Could not build the example: {exc}", type="error", duration=8)
+            return
+        _apply_dataset(r.G, r.info, f"trait-based food web (example: {TRAIT_EXAMPLES[key][0]})",
+                       r.notes, r.placeholder_biomass)
+
+    def _banner_if_placeholder():
+        return _placeholder_banner() if biomass_placeholder() else None
+
+    @output
+    @render.ui
+    def biomass_placeholder_banner_biomass():
+        return _banner_if_placeholder()
+
+    @output
+    @render.ui
+    def biomass_placeholder_banner_fluxes():
+        return _banner_if_placeholder()
+
+    @output
+    @render.ui
+    def biomass_placeholder_banner_keystoneness():
+        return _banner_if_placeholder()
 
     @reactive.effect
     @reactive.event(input.load_example)
@@ -1781,9 +1930,14 @@ Keystoneness Analysis Summary:
         info = current_species_info()
         columns = list(info.columns)
         col_name = columns[patch["column_index"]] if patch["column_index"] < len(columns) else None
+        original = info.iloc[patch["row_index"]][col_name] if col_name else patch["value"]
         if col_name in ("species", "fg"):
-            return info.iloc[patch["row_index"]][col_name]
-        return patch["value"]
+            return original
+        try:
+            return _coerce_patch_value(info, col_name, patch["value"])
+        except ValueError as exc:
+            ui.notification_show(f"{col_name}: {exc}; edit not applied.", type="warning", duration=6)
+            return original
 
     @reactive.effect
     @reactive.event(input.update_species_info)
@@ -1823,6 +1977,9 @@ Keystoneness Analysis Summary:
             ui.notification_show(f"Cannot apply edits: {exc}", type="error", duration=6)
             return
         flux_results.set(None)
+        old_biomass = current_species_info()["meanB"].to_numpy(dtype=float)
+        if not np.allclose(df["meanB"].to_numpy(dtype=float), old_biomass):
+            biomass_placeholder.set(False)   # the user entered real biomass
         current_species_info.set(df)
         ui.notification_show("Species info updated.", type="message", duration=4)
 

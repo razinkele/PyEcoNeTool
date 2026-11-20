@@ -692,7 +692,7 @@ def test_biomass_plot_labels_are_areal_not_daily():
 def _server_fn(name):
     tree = ast.parse(APP.read_text(encoding="utf-8"))
     return next(n for n in ast.walk(tree)
-                if isinstance(n, ast.FunctionDef) and n.name == name)
+                if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == name)
 
 
 def test_apply_dataset_is_session_scoped_and_clears_fluxes():
@@ -747,3 +747,70 @@ def test_ecopath_handler_uses_parser_and_reports_valueerror():
     handlers = [h for n in ast.walk(fn) if isinstance(n, ast.Try) for h in n.handlers]
     assert any(isinstance(h.type, ast.Name) and h.type.id == "ValueError" for h in handlers)
     assert "_apply_dataset" in _calls_in(fn)
+
+
+def test_trait_handlers_use_parser_and_report_valueerror():
+    for fn_name, parser in (("_import_traits", "parse_trait_file"),
+                            ("_load_trait_example", "load_trait_example")):
+        fn = _server_fn(fn_name)
+        assert parser in _calls_in(fn), fn_name
+        assert "_apply_dataset" in _calls_in(fn), fn_name
+        handlers = [h for n in ast.walk(fn) if isinstance(n, ast.Try) for h in n.handlers]
+        assert any(isinstance(h.type, ast.Name) and h.type.id == "ValueError" for h in handlers), fn_name
+
+
+def test_trait_threshold_validated_before_parsing():
+    src = ast.unparse(_server_fn("_import_traits"))
+    assert "_valid_trait_threshold(" in src
+    assert src.index("_valid_trait_threshold(") < src.index("parse_trait_file(")
+    import app
+    assert app._valid_trait_threshold(0.05) == 0.05
+    assert app._valid_trait_threshold(0) == 0
+    for bad in (None, -0.1, 1, 1.5, float("nan")):
+        assert app._valid_trait_threshold(bad) is None
+
+
+def test_banner_on_each_biomass_page():
+    import app
+    for builder, out_id in ((app.biomass_ui, "biomass_placeholder_banner_biomass"),
+                            (app.fluxes_ui, "biomass_placeholder_banner_fluxes"),
+                            (app.keystoneness_ui, "biomass_placeholder_banner_keystoneness")):
+        assert f'id="{out_id}"' in str(builder()), out_id
+
+
+def test_banner_text_is_the_spec_text():
+    import app
+    assert app.BIOMASS_PLACEHOLDER_TEXT == (
+        "Biomass values are placeholders (1.0 for every species) — these results are not meaningful.")
+
+
+def test_editor_apply_clears_placeholder_when_meanB_changes():
+    src = ast.unparse(_server_fn("_apply_species_info_edits"))
+    assert "biomass_placeholder.set(False)" in src
+
+
+def test_apply_dataset_sets_placeholder_flag():
+    src = ast.unparse(_server_fn("_apply_dataset"))
+    assert "biomass_placeholder.set(" in src
+
+
+def test_editor_patch_values_match_the_column_dtype():
+    """Shiny's DataGrid sends edited cells as text and data_patched() writes
+    them straight into the original column; pandas >= 3 refuses text in a
+    float column (TypeError), which crashed the session on any numeric edit.
+    The patch function must hand back a value of the column's own type."""
+    import pandas as pd
+    import pytest
+    import app
+    info = pd.DataFrame({"species": ["A"], "meanB": [1.0], "met.types": ["invertebrates"]})
+    v = app._coerce_patch_value(info, "meanB", "42")
+    assert v == 42.0 and isinstance(v, float)
+    assert app._coerce_patch_value(info, "meanB", "4,5") == 4.5
+    info.loc[0, "meanB"] = v                      # what data_patched() does: must not raise
+    assert app._coerce_patch_value(info, "met.types", "Other") == "Other"
+    with pytest.raises(ValueError):
+        app._coerce_patch_value(info, "meanB", "abc")
+
+
+def test_editor_patch_fn_coerces_values():
+    assert "_coerce_patch_value" in _calls_in(_server_fn("_reject_key_edits"))

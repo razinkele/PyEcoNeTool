@@ -41,6 +41,21 @@ TRAIT_CODES = {
     "EP": tuple(f"EP{i}" for i in range(1, 5)),
     "PR": tuple(f"PR{i}" for i in range(0, 9)),
 }
+# Short labels from R EcoNeTool's TRAIT_VOCAB (vocabulary version 2).
+TRAIT_LABELS = {
+    "MS": {"MS1": "< 0.1 cm", "MS2": "0.1–1 cm", "MS3": "1–5 cm", "MS4": "5–20 cm",
+           "MS5": "20–50 cm", "MS6": "50–150 cm", "MS7": "> 150 cm (never prey)"},
+    "FS": {"FS0": "primary producer (never eats)", "FS1": "predator", "FS2": "scavenger / detritivore",
+           "FS3": "omnivore", "FS4": "grazer / herbivore", "FS5": "deposit feeder",
+           "FS6": "filter / suspension feeder", "FS7": "xylophagous"},
+    "MB": {"MB1": "sessile", "MB2": "passive floater / drifter", "MB3": "crawler-burrower",
+           "MB4": "facultative swimmer", "MB5": "obligate swimmer"},
+    "EP": {"EP1": "pelagic", "EP2": "benthopelagic", "EP3": "epibenthic",
+           "EP4": "endobenthic / infaunal"},
+    "PR": {"PR0": "none / soft body", "PR1": "mucus / cuticle", "PR2": "tube", "PR3": "burrow refuge",
+           "PR4": "thin exoskeleton", "PR5": "soft shell", "PR6": "hard shell",
+           "PR7": "spines / ossicle plates", "PR8": "armoured"},
+}
 _PREY_MS = TRAIT_CODES["MS"][:6]   # MS1–MS6: MS7 is never prey
 _MB = TRAIT_CODES["MB"]
 CONSUMER_TRAITS = ("MS", "FS", "MB", "EP")
