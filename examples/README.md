@@ -36,18 +36,20 @@ This directory contains example food web datasets for testing and learning how t
 
 ## How to Use
 
-### Using RData files
-1. Download the `.Rdata` file
-2. In EcoNeTool, go to **Data Import** tab
-3. Click **Choose File** and select the `.Rdata` file
-4. Click **Load Data**
-5. Navigate to other tabs to explore the network
-
-### Using CSV files
+### Using CSV files (Python app, EconetPy)
 1. Download both `*_network.csv` and `*_info.csv` files
 2. Modify them in Excel or any spreadsheet software
-3. Save as CSV
-4. Upload to EcoNeTool (CSV import coming soon)
+3. Save as CSV (comma, semicolon or tab separated; UTF-8 preferred)
+4. In the app, open **Data Import**, choose both files and click **Load uploaded data**
+5. Navigate to the other pages to explore the network
+
+The Simple 3-species and Caribbean reef examples can also be loaded directly
+from the **Example datasets** card, without downloading anything. Uploaded
+data lives only in your browser session.
+
+### Using RData files (R app only)
+The `.Rdata` files are for the R version of EcoNeTool (**Data Import** →
+**Choose File** → **Load Data**). The Python app does not read RData.
 
 ## File Formats
 

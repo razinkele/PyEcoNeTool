@@ -46,6 +46,7 @@ from network_viz import (
     get_functional_group_colors,
 )
 from feedback_reporter import collect_system_context, submit_feedback_async
+from data_import import parse_food_web, load_example, EXAMPLE_DATASETS
 
 import logging
 logging.basicConfig(
@@ -351,6 +352,12 @@ except (FileNotFoundError, ImportError) as e:
     network, species_info = create_example_network()
     USING_EXAMPLE_NETWORK = True
 
+
+def _default_dataset_label():
+    if USING_EXAMPLE_NETWORK:
+        return "synthetic example network (default data unavailable)"
+    return "Gulf of Riga food web, 1979-2016 (Frelat & Kortsch, 2020) — default"
+
 # ============================================================================
 # CONTENT DEFINITIONS (must be defined before app_ui)
 # ============================================================================
@@ -554,6 +561,68 @@ keystoneness_ui = lambda: ui.div(
     )
 )
 
+_FORMAT_GUIDE = ui.HTML("""
+<p>Upload <strong>two CSV files</strong> (comma, semicolon or tab separated; UTF-8):</p>
+<h6>1. Network (adjacency matrix)</h6>
+<ul>
+  <li>Square matrix. The first column holds the species names; the header row repeats them.</li>
+  <li><strong>Rows = prey, columns = predators</strong>: a cell is <code>1</code> when the
+      row species is eaten by the column species, otherwise <code>0</code>.</li>
+</ul>
+<pre style="font-size:0.85em">,Phytoplankton,Zooplankton,Fish
+Phytoplankton,0,1,0
+Zooplankton,0,0,1
+Fish,0,0,0</pre>
+<h6>2. Species information</h6>
+<p>One row per species, with these columns (extra columns are kept):</p>
+<ul>
+  <li><code>species</code> &ndash; name, exactly as in the network file</li>
+  <li><code>fg</code> &ndash; functional group (e.g. Phytoplankton, Zooplankton, Fish, Benthos, Detritus)</li>
+  <li><code>meanB</code> &ndash; mean biomass (g/km&sup2;), &gt; 0</li>
+  <li><code>bodymasses</code> &ndash; mean body mass (g), &gt; 0</li>
+  <li><code>met.types</code> &ndash; one of <code>invertebrates</code>,
+      <code>ectotherm vertebrates</code>, <code>Other</code></li>
+  <li><code>efficiencies</code> &ndash; assimilation efficiency, between 0 and 1</li>
+</ul>
+<p>Templates: the <code>examples/</code> folder of the project repository
+(<code>*_network.csv</code> + <code>*_info.csv</code>). Uploaded data stays in your
+browser session only and is not stored on the server.</p>
+""")
+
+
+def import_ui():
+    return ui.layout_columns(
+        ui.card(
+            ui.card_header("Current dataset"),
+            ui.output_ui("current_dataset_info"),
+        ),
+        ui.card(
+            ui.card_header("Upload your own food web"),
+            ui.input_file("upload_network", "Network CSV (adjacency matrix)",
+                          accept=[".csv", ".txt"], multiple=False),
+            ui.input_file("upload_info", "Species information CSV",
+                          accept=[".csv", ".txt"], multiple=False),
+            ui.input_action_button("import_upload", "Load uploaded data", class_="btn-primary"),
+        ),
+        ui.card(
+            ui.card_header("Example datasets"),
+            ui.input_select(
+                "example_dataset", "Example",
+                {key: label for key, (label, _, _) in EXAMPLE_DATASETS.items()},
+            ),
+            ui.input_action_button("load_example", "Load example", class_="btn-secondary"),
+            ui.hr(),
+            ui.input_action_button("reset_default_data", "Back to the default dataset",
+                                   class_="btn-outline-secondary"),
+        ),
+        ui.card(
+            ui.card_header("File format"),
+            _FORMAT_GUIDE,
+        ),
+        col_widths=[12, 6, 6, 12],
+    )
+
+
 editor_ui = lambda: ui.layout_columns(
         ui.card(
             ui.card_header("Species Information"),
@@ -564,10 +633,11 @@ editor_ui = lambda: ui.layout_columns(
     )
 
 
-# Ordered registry of the 7 navigable pages: page_key -> (menu_input_id, ui_builder).
+# Ordered registry of the 8 navigable pages: page_key -> (menu_input_id, ui_builder).
 # menu_feedback is deliberately excluded - it opens a modal, not a page.
 PAGES = {
     "dashboard": ("menu_dashboard", dashboard_ui),
+    "import": ("menu_import", import_ui),
     "network": ("menu_network", network_ui),
     "topology": ("menu_topology", topology_ui),
     "biomass": ("menu_biomass", biomass_ui),
@@ -776,6 +846,7 @@ app_ui = ui.page_fluid(
                     "☰"
                 ),
                 ui.input_action_link("menu_dashboard", ui.div({"class": "menu-item active", "id": "menu_dashboard_div", "title": "Dashboard - Overview and summary statistics"}, "Dashboard")),
+                ui.input_action_link("menu_import", ui.div({"class": "menu-item", "id": "menu_import_div", "title": "Data Import - Upload your own food web or load an example"}, "Data Import")),
                 ui.input_action_link("menu_network", ui.div({"class": "menu-item", "id": "menu_network_div", "title": "Food Web Network - Interactive network visualization"}, "Food Web Network")),
                 ui.input_action_link("menu_topology", ui.div({"class": "menu-item", "id": "menu_topology_div", "title": "Topological Metrics - Network structure analysis"}, "Topological Metrics")),
                 ui.input_action_link("menu_biomass", ui.div({"class": "menu-item", "id": "menu_biomass_div", "title": "Biomass Analysis - Species biomass distribution"}, "Biomass Analysis")),
@@ -819,6 +890,76 @@ def server(input, output, session):
     current_network = reactive.Value(network)
     current_species_info = reactive.Value(species_info)
     flux_results = reactive.Value(None)
+    current_dataset_label = reactive.Value(_default_dataset_label())
+
+    # ========================================================================
+    # DATA IMPORT TAB
+    # ========================================================================
+    # Session-scoped only: sets this session's current_* values. Never assigns
+    # the module-level network/species_info or writes BalticFW.pkl, so one
+    # user's upload can never leak into another session.
+
+    def _apply_dataset(G, info, label):
+        _assert_aligned(G, info)
+        flux_results.set(None)
+        current_network.set(G)
+        current_species_info.set(info)
+        current_dataset_label.set(label)
+        ui.notification_show(
+            f"Loaded {label}: {G.number_of_nodes()} species, {G.number_of_edges()} links.",
+            type="message", duration=5,
+        )
+
+    @reactive.effect
+    @reactive.event(input.import_upload)
+    def _import_upload():
+        net_files, info_files = input.upload_network(), input.upload_info()
+        if not net_files or not info_files:
+            ui.notification_show("Choose both a network CSV and a species CSV first.",
+                                 type="warning", duration=5)
+            return
+        net, inf = net_files[0], info_files[0]
+        try:
+            G, info = parse_food_web(Path(net["datapath"]), Path(inf["datapath"]))
+        except ValueError as exc:
+            ui.notification_show(f"Import failed: {exc}", type="error", duration=10)
+            return
+        except Exception:  # noqa: BLE001 — upload boundary: an uncaught error here ends the session
+            logger.exception("Unexpected error parsing upload %r + %r", net.get("name"), inf.get("name"))
+            ui.notification_show(
+                "Import failed: the files could not be read. Check they are plain CSV "
+                "files in the format described below.", type="error", duration=10)
+            return
+        _apply_dataset(G, info, f"uploaded data ({net['name']} + {inf['name']})")
+
+    @reactive.effect
+    @reactive.event(input.load_example)
+    def _load_example():
+        key = input.example_dataset()
+        try:
+            G, info = load_example(key)
+        except ValueError as exc:
+            ui.notification_show(f"Could not load example: {exc}", type="error", duration=8)
+            return
+        _apply_dataset(G, info, f"example: {EXAMPLE_DATASETS[key][0]}")
+
+    @reactive.effect
+    @reactive.event(input.reset_default_data)
+    def _reset_default_data():
+        _apply_dataset(network.copy(), species_info.copy(), _default_dataset_label())
+
+    @output
+    @render.ui
+    def current_dataset_info():
+        G = current_network()
+        info = current_species_info()
+        # Tags, not ui.HTML: the label can contain an uploaded file name.
+        return ui.div(
+            ui.tags.strong(current_dataset_label()),
+            ui.tags.br(),
+            f"{G.number_of_nodes()} species, {G.number_of_edges()} links, "
+            f"{info['fg'].nunique()} functional groups",
+        )
 
     @reactive.calc
     def trophic_levels_cached():

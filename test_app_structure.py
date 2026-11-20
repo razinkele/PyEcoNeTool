@@ -172,6 +172,7 @@ def test_logging_configured():
 
 EXPECTED_PAGES = {
     "dashboard": ("menu_dashboard", "dashboard_ui"),
+    "import": ("menu_import", "import_ui"),
     "network": ("menu_network", "network_ui"),
     "topology": ("menu_topology", "topology_ui"),
     "biomass": ("menu_biomass", "biomass_ui"),
@@ -182,7 +183,7 @@ EXPECTED_PAGES = {
 
 
 def test_pages_registry_maps_keys_to_menu_ids_and_builders():
-    """A single ordered PAGES registry (module-level) must map each of the 7
+    """A single ordered PAGES registry (module-level) must map each of the 8
     navigable page keys to its (menu_input_id, ui_builder) pair, replacing the
     old duplicated per-page menu effects and if/elif dispatch chain."""
     tree = ast.parse(APP.read_text(encoding="utf-8"))
@@ -686,3 +687,55 @@ def test_biomass_plot_labels_are_areal_not_daily():
         fn_src = ast.get_source_segment(source, fn)
         assert "g/km²/day" not in fn_src, f"{name} axis label wrongly claims a per-day flux unit"
         assert "g/km²)" in fn_src, f"{name} axis label missing the g/km² unit"
+
+
+def _server_fn(name):
+    tree = ast.parse(APP.read_text(encoding="utf-8"))
+    return next(n for n in ast.walk(tree)
+                if isinstance(n, ast.FunctionDef) and n.name == name)
+
+
+def test_apply_dataset_is_session_scoped_and_clears_fluxes():
+    """Imports must only touch this session's reactive values: validate
+    alignment, clear stale fluxes, then set network + info. No `global`, no
+    pickle writes."""
+    fn = _server_fn("_apply_dataset")
+    calls = _calls_in(fn)
+    assert "_assert_aligned" in calls
+    assert "save_to_pickle" not in calls and "dump" not in calls
+    assert not any(isinstance(n, ast.Global) for n in ast.walk(fn))
+    src = ast.unparse(fn)
+    assert src.index("flux_results.set(None)") < src.index("current_species_info.set(")
+
+
+def test_upload_handler_uses_parser_and_reports_valueerror():
+    fn = _server_fn("_import_upload")
+    assert "parse_food_web" in _calls_in(fn)
+    handlers = [h for n in ast.walk(fn) if isinstance(n, ast.Try) for h in n.handlers]
+    assert any(isinstance(h.type, ast.Name) and h.type.id == "ValueError" for h in handlers)
+
+
+def test_current_dataset_info_does_not_inject_raw_html():
+    """The dataset label can contain an uploaded file name: it must be
+    rendered through escaping tags, never ui.HTML."""
+    assert "HTML" not in _calls_in(_server_fn("current_dataset_info"))
+
+
+def test_every_local_module_app_imports_is_shipped_by_deploy():
+    """deploy.sh ships an explicit RUNTIME allowlist; a local module that
+    app.py imports but the list omits breaks `import app` on the server."""
+    import re
+    root = APP.parent
+    tree = ast.parse(APP.read_text(encoding="utf-8"))
+    mods = set()
+    for n in ast.walk(tree):
+        if isinstance(n, ast.ImportFrom) and n.module:
+            mods.add(n.module.split(".")[0])
+        elif isinstance(n, ast.Import):
+            mods.update(a.name.split(".")[0] for a in n.names)
+    local = {m for m in mods if (root / f"{m}.py").exists()}
+    script = (root / "deploy" / "deploy.sh").read_text(encoding="utf-8")
+    runtime = re.search(r"RUNTIME=\((.*?)\)", script, re.S).group(1).split()
+    missing = sorted(f"{m}.py" for m in local if f"{m}.py" not in runtime)
+    assert not missing, f"deploy.sh RUNTIME is missing {missing}"
+    assert "examples" in runtime  # the example picker reads examples/*.csv
