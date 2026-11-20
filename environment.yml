@@ -1,7 +1,9 @@
 # environment.yml — canonical conda env for EconetPy
 #
 # To apply this file:
-#   - Update existing env in place:    micromamba env update -n shiny -f environment.yml --prune
+#   - Update existing env in place:    micromamba env update -n shiny -f environment.yml
+#     (NEVER add --prune: the env is shared and --prune removes ~459 packages
+#     other projects need)
 #   - Or recreate fresh under new name: micromamba create -n shiny-fresh -f environment.yml
 #
 # Running `micromamba env create -f environment.yml` against an existing
@@ -15,10 +17,10 @@
 
 name: shiny
 channels:
+  - razinka                      # the pyvis fork's conda builds (noarch)
   - conda-forge
 dependencies:
   - python=3.13.*
-  - git                          # required so pip can resolve git+https URLs at install time
   - shiny>=1.0.0
   - htmltools>=0.5.0
   - shinyswatch>=0.4.0
@@ -31,24 +33,25 @@ dependencies:
   - pytest>=8.0
   - hypothesis>=6.100.0
   - pytest-playwright>=0.5.0
-  - pip
-  - pip:
-      # Renamed pyvis -> pyvis-optimized in v4.3.1; import name is still `pyvis`.
-      #
-      # WARNING: the `shiny` env is SHARED — on laguna by ~20 apps, and locally
-      # across projects — and holds ONE version, so this pin is effectively a
-      # cross-project decision. Seven apps import pyvis (BowTie, EconetPy, EVA,
-      # MosaicSES, NiDSES, osmose, SESPy). Never apply this file with
-      # `--prune`: it would remove ~459 packages other projects need.
-      #
-      # v5.0.0 verified 2026-11-20 (the server's shared env was already on 5.0.0,
-      # installed from a conda build, not this git URL). Breaking changes since 4.4.0:
-      # Python >=3.11 (server 3.13.9) and shiny>=1.6.4 for the shiny extra (server
-      # 1.9.0) - satisfied; output_pyvis_network now honours height/width - unused
-      # here (the app renders pyvis into its own iframe); 4.5.0 duplicate node ids
-      # raise - node ids are species names, already unique-checked; Font(align=
-      # "right") rejected - unused. Full suite passed against a checkout of the tag.
-      # Only EconetPy was checked; the other six pyvis apps were NOT.
-      # Tag v5.0.0 (annotated) -> commit 2a20c3b43291c610f81bc44b2effea7c9dd36701
-      # (tags are mutable; re-verify this if the tag is ever moved).
-      - pyvis-optimized @ git+https://github.com/razinkele/pyvis.git@v5.0.0
+  # pyvis fork, from the razinka conda channel (the conda package is named
+  # `pyvis`; pip sees the same install as dist `pyvis-optimized`; import name
+  # `pyvis`). This is how the server's shared env gets it. pip-only users:
+  # requirements.txt has the equivalent git+https line.
+  #
+  # WARNING: the `shiny` env is SHARED — on laguna by ~20 apps, and locally
+  # across projects — and holds ONE version, so this pin is effectively a
+  # cross-project decision. Seven apps import pyvis (BowTie, EconetPy, EVA,
+  # MosaicSES, NiDSES, osmose, SESPy). Never apply this file with
+  # `--prune`: it would remove ~459 packages other projects need.
+  #
+  # v5.0.0 verified 2026-11-20 (the server's shared env was already on 5.0.0,
+  # installed from razinka::pyvis). Breaking changes since 4.4.0:
+  # Python >=3.11 (server 3.13.9) and shiny>=1.6.4 for the shiny extra (server
+  # 1.9.0) - satisfied; output_pyvis_network now honours height/width - unused
+  # here (the app renders pyvis into its own iframe); 4.5.0 duplicate node ids
+  # raise - node ids are species names, already unique-checked; Font(align=
+  # "right") rejected - unused. Full suite passed against a checkout of the tag.
+  # Only EconetPy was checked; the other six pyvis apps were NOT.
+  # Tag v5.0.0 (annotated) -> commit 2a20c3b43291c610f81bc44b2effea7c9dd36701
+  # (tags are mutable; re-verify this if the tag is ever moved).
+  - razinka::pyvis=5.0.0

@@ -39,26 +39,30 @@ sudo. **The app is proven working on port 3838 before nginx exposes it.**
 
 ### 1. Install the pyvis fork into the shared env
 
-The pinned version is **`pyvis-optimized` v5.0.0** (see `requirements.txt`).
-The distribution was renamed `pyvis` -> `pyvis-optimized` at v4.3.1; the import
-name is still `pyvis`. If the old `pyvis` dist is present it must be removed
-first, or two distributions own the same import package.
+The pinned version is **v5.0.0** (`requirements.txt`, `environment.yml`). The
+server installs it from the **`razinka` conda channel**: the conda package is
+named `pyvis`, pip lists the same install as `pyvis-optimized`, and the import
+name is `pyvis`. (Before 2026-11 this step pip-installed the fork from git; a
+pip-installed copy must be removed first, or two installs own the same import
+package.)
 
 ```bash
 ssh razinka@laguna.ku.lt
 
-# What is there now
+# What is there now: expect one conda record and pip showing the same version
+ls /opt/micromamba/envs/shiny/conda-meta | grep -i pyvis
 /opt/micromamba/envs/shiny/bin/pip list 2>/dev/null | grep -i pyvis
 
-# Only if a dist named plain `pyvis` is listed (pre-4.3.1 installs):
-sudo /opt/micromamba/envs/shiny/bin/pip uninstall -y pyvis
+# Only if pip lists a pyvis dist but conda-meta has no pyvis-*.json
+# (a leftover pip/git install):
+sudo /opt/micromamba/envs/shiny/bin/pip uninstall -y pyvis-optimized pyvis
 
-# site-packages is root:micromamba, so install as root
-sudo env PIP_NO_CACHE_DIR=1 /opt/micromamba/envs/shiny/bin/pip install "pyvis-optimized @ git+https://github.com/razinkele/pyvis.git@v5.0.0"
+# The env is shiny:micromamba and not group-writable, so install as root
+sudo micromamba install -y -p /opt/micromamba/envs/shiny   -c razinka -c conda-forge "razinka::pyvis=5.0.0"
 
-# Verify: expect 5.0.0, and exactly one pyvis distribution
+# Verify: expect 5.0.0, from https://conda.anaconda.org/razinka/noarch
 /opt/micromamba/envs/shiny/bin/python3 -c "import pyvis; print(pyvis.__version__)"
-/opt/micromamba/envs/shiny/bin/pip list 2>/dev/null | grep -i pyvis
+grep -h '"url"' /opt/micromamba/envs/shiny/conda-meta/pyvis-*.json
 ```
 
 > **Shared-env warning.** `/opt/micromamba/envs/shiny` backs every Python Shiny
@@ -226,7 +230,7 @@ ssh razinka@laguna.ku.lt 'cd /srv/shiny-server/EconetPy && \
 ```
 
 **Version skew (shared env vs. local dev) — checked, currently clean.**
-`pyvis-optimized` is aligned at **5.0.0** on the server (conda build) and the
+`pyvis` is aligned at **5.0.0** on the server (`razinka::pyvis`, conda) and the
 pin (moved 2026-11-20; local dev uses an editable checkout reporting 5.0.0), and
 `deploy.sh` now warns on every deploy if that drifts from the pin. The rest
 still differs: the server runs `pandas 3.0.3` / `numpy 2.3.5` /

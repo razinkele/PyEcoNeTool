@@ -8,6 +8,9 @@ networkx>=3.0
 
 # Network Visualization
 # razinkele fork; not on PyPI. Requires git on PATH at install time.
+# The SERVER installs the same release from conda instead: razinka::pyvis
+# (see environment.yml / DEPLOYMENT.md step 1). deploy.sh reads the version
+# from the git tag below for its pin-drift check, so keep the two in step.
 # The distribution was renamed pyvis -> pyvis-optimized in v4.3.1, so the
 # requirement name must be pyvis-optimized; the import name is still `pyvis`.
 # The `shiny` env is SHARED — on laguna by ~20 apps, locally across projects —

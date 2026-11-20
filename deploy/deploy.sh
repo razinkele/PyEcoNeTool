@@ -140,8 +140,7 @@ if [ -n "$PINNED" ] && [ -n "$INSTALLED" ] && [ "${PINNED#v}" != "$INSTALLED" ];
   echo "  !! pyvis PIN DRIFT: requirements.txt pins ${PINNED}, server has ${INSTALLED}"
   echo "     The app is being deployed against a version it is not pinned to."
   echo "     Fix (needs sudo on the server) - see DEPLOYMENT.md step 1:"
-  echo "       sudo env PIP_NO_CACHE_DIR=1 ${PYTHON%/*}/pip install \\"
-  echo "         \"pyvis-optimized @ git+https://github.com/razinkele/pyvis.git@${PINNED}\""
+  echo "       sudo micromamba install -y -p ${PYTHON%/bin/*} -c razinka -c conda-forge \"razinka::pyvis=${PINNED#v}\""
   echo ""
 else
   echo "==> pyvis pin OK (${INSTALLED:-unknown})"
