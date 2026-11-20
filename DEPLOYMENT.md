@@ -39,7 +39,7 @@ sudo. **The app is proven working on port 3838 before nginx exposes it.**
 
 ### 1. Install the pyvis fork into the shared env
 
-The pinned version is **`pyvis-optimized` v4.4.0** (see `requirements.txt`).
+The pinned version is **`pyvis-optimized` v5.0.0** (see `requirements.txt`).
 The distribution was renamed `pyvis` -> `pyvis-optimized` at v4.3.1; the import
 name is still `pyvis`. If the old `pyvis` dist is present it must be removed
 first, or two distributions own the same import package.
@@ -54,9 +54,9 @@ ssh razinka@laguna.ku.lt
 sudo /opt/micromamba/envs/shiny/bin/pip uninstall -y pyvis
 
 # site-packages is root:micromamba, so install as root
-sudo env PIP_NO_CACHE_DIR=1 /opt/micromamba/envs/shiny/bin/pip install "pyvis-optimized @ git+https://github.com/razinkele/pyvis.git@v4.4.0"
+sudo env PIP_NO_CACHE_DIR=1 /opt/micromamba/envs/shiny/bin/pip install "pyvis-optimized @ git+https://github.com/razinkele/pyvis.git@v5.0.0"
 
-# Verify: expect 4.4.0, and exactly one pyvis distribution
+# Verify: expect 5.0.0, and exactly one pyvis distribution
 /opt/micromamba/envs/shiny/bin/python3 -c "import pyvis; print(pyvis.__version__)"
 /opt/micromamba/envs/shiny/bin/pip list 2>/dev/null | grep -i pyvis
 ```
@@ -226,7 +226,8 @@ ssh razinka@laguna.ku.lt 'cd /srv/shiny-server/EconetPy && \
 ```
 
 **Version skew (shared env vs. local dev) — checked, currently clean.**
-`pyvis-optimized` is aligned at **4.4.0** on both the server and locally, and
+`pyvis-optimized` is aligned at **5.0.0** on the server (conda build) and the
+pin (moved 2026-11-20; local dev uses an editable checkout reporting 5.0.0), and
 `deploy.sh` now warns on every deploy if that drifts from the pin. The rest
 still differs: the server runs `pandas 3.0.3` / `numpy 2.3.5` /
 `shinyswatch 0.11.0`; local dev is on `pandas 2.3.3` / `numpy 2.4.3` /

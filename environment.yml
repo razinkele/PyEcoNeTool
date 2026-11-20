@@ -41,9 +41,14 @@ dependencies:
       # MosaicSES, NiDSES, osmose, SESPy). Never apply this file with
       # `--prune`: it would remove ~459 packages other projects need.
       #
-      # v4.4.0 verified before bumping: additive changes plus one breaking one,
-      # `require Python >=3.10` — satisfied (server runs 3.13.14). No app
-      # hardcodes the bundled `lib/vis-<ver>/` path, so the vis-network
-      # 10.0.2 -> 10.1.2 bundle move is safe.
-      # Tag v4.4.0 == commit bee1467e90eeedd3f6878b167d0ae21ad2807069 (tags are mutable).
-      - pyvis-optimized @ git+https://github.com/razinkele/pyvis.git@v4.4.0
+      # v5.0.0 verified 2026-11-20 (the server's shared env was already on 5.0.0,
+      # installed from a conda build, not this git URL). Breaking changes since 4.4.0:
+      # Python >=3.11 (server 3.13.9) and shiny>=1.6.4 for the shiny extra (server
+      # 1.9.0) - satisfied; output_pyvis_network now honours height/width - unused
+      # here (the app renders pyvis into its own iframe); 4.5.0 duplicate node ids
+      # raise - node ids are species names, already unique-checked; Font(align=
+      # "right") rejected - unused. Full suite passed against a checkout of the tag.
+      # Only EconetPy was checked; the other six pyvis apps were NOT.
+      # Tag v5.0.0 (annotated) -> commit 2a20c3b43291c610f81bc44b2effea7c9dd36701
+      # (tags are mutable; re-verify this if the tag is ever moved).
+      - pyvis-optimized @ git+https://github.com/razinkele/pyvis.git@v5.0.0
