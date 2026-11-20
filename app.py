@@ -48,7 +48,8 @@ from network_viz import (
 )
 from feedback_reporter import collect_system_context, submit_feedback_async
 from data_import import parse_food_web, load_example, EXAMPLE_DATASETS
-from ecopath_import import parse_ecopath_db, ACCEPTED_EXTENSIONS as ECOPATH_EXTENSIONS
+from ecopath_import import (parse_ecopath_db, parse_ecopath_exports,
+                            ACCEPTED_EXTENSIONS as ECOPATH_EXTENSIONS)
 from trait_foodweb import (parse_trait_file, load_trait_example, TRAIT_EXAMPLES,
                            TRAIT_LABELS)
 
@@ -638,7 +639,11 @@ _FORMAT_GUIDE = ui.HTML("""
 <p>Either load an <strong>Ecopath with Ecosim model database</strong>
 (<code>.ewemdb</code>, <code>.eweaccdb</code>): the groups, biomasses and diet links are read
 from it, and functional groups, body masses, metabolic types and efficiencies are estimated
-(the import notes say how; review them in the Data Editor).</p>
+(the import notes say how; review them in the Data Editor). The EwE program's own
+exports work too: <em>Basic estimates</em> (or <em>Basic input</em>) plus
+<em>Diet composition</em>, as saved from EwE (CSV or .xlsx). Exports do not record each
+group's type, so producers, consumers and detritus are inferred from P/B, Q/B and the
+diet matrix.</p>
 <p>Or upload <strong>two files</strong>, each CSV (comma, semicolon or tab separated; UTF-8)
 or Excel <code>.xlsx</code> (first sheet):</p>
 <h6>1. Network (adjacency matrix)</h6>
@@ -698,6 +703,15 @@ def import_ui():
             ui.input_file("upload_ecopath", "EwE model database",
                           accept=list(ECOPATH_EXTENSIONS), multiple=False),
             ui.input_action_button("import_ecopath", "Load Ecopath model", class_="btn-primary"),
+            ui.hr(),
+            ui.p("Or the two tables exported from the EwE program (CSV or .xlsx):",
+                 class_="small mb-2"),
+            ui.input_file("upload_ewe_basic", "Basic estimates (or Basic input)",
+                          accept=[".csv", ".txt", ".xlsx"], multiple=False),
+            ui.input_file("upload_ewe_diet", "Diet composition",
+                          accept=[".csv", ".txt", ".xlsx"], multiple=False),
+            ui.input_action_button("import_ecopath_exports", "Load Ecopath exports",
+                                   class_="btn-primary"),
         ),
         ui.card(
             ui.card_header("Trait-based food web"),
@@ -1070,6 +1084,30 @@ def server(input, output, session):
                 "with Ecosim 6 model file.", type="error", duration=10)
             return
         _apply_dataset(G, info, f"Ecopath model ({f['name']})", notes)
+
+    @reactive.effect
+    @reactive.event(input.import_ecopath_exports)
+    def _import_ecopath_exports():
+        basic, diet = input.upload_ewe_basic(), input.upload_ewe_diet()
+        if not basic or not diet:
+            ui.notification_show("Choose both exported files first: Basic estimates and "
+                                 "Diet composition.", type="warning", duration=5)
+            return
+        b, d = basic[0], diet[0]
+        try:
+            G, info, notes = parse_ecopath_exports(Path(b["datapath"]), Path(d["datapath"]))
+        except ValueError as exc:
+            ui.notification_show(f"Import failed: {exc}", type="error", duration=10)
+            return
+        except Exception:  # noqa: BLE001 — upload boundary: an uncaught error here ends the session
+            logger.exception("Unexpected error reading Ecopath exports %r + %r",
+                             b.get("name"), d.get("name"))
+            ui.notification_show(
+                "Import failed: the files could not be read. Check they are the Basic "
+                "estimates and Diet composition tables exported from EwE.",
+                type="error", duration=10)
+            return
+        _apply_dataset(G, info, f"Ecopath exports ({b['name']} + {d['name']})", notes)
 
     def _threshold_error():
         ui.notification_show("The link threshold must be a number from 0 up to "

@@ -750,6 +750,21 @@ def test_ecopath_handler_uses_parser_and_reports_valueerror():
     assert "_apply_dataset" in _calls_in(fn)
 
 
+def test_ecopath_export_handler_uses_parser_and_reports_valueerror():
+    fn = _server_fn("_import_ecopath_exports")
+    assert "parse_ecopath_exports" in _calls_in(fn)
+    assert "_apply_dataset" in _calls_in(fn)
+    handlers = [h for n in ast.walk(fn) if isinstance(n, ast.Try) for h in n.handlers]
+    assert any(isinstance(h.type, ast.Name) and h.type.id == "ValueError" for h in handlers)
+
+
+def test_ecopath_export_inputs_on_import_page():
+    import app
+    html = str(app.import_ui())
+    for id_ in ("upload_ewe_basic", "upload_ewe_diet", "import_ecopath_exports"):
+        assert f'id="{id_}"' in html, id_
+
+
 def test_trait_handlers_use_parser_and_report_valueerror():
     for fn_name, parser in (("_import_traits", "parse_trait_file"),
                             ("_load_trait_example", "load_trait_example")):

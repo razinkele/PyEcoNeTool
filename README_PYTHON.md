@@ -256,7 +256,8 @@ Python Shiny doesn't have a direct equivalent to R's `bs4Dash`. The Python versi
 - ✅ ECOPATH native model databases (`.ewemdb`, `.eweaccdb`) via mdbtools / Access ODBC (`ecopath_import.py`)
 - ✅ Trait-based food web from species × trait codes (MS FS MB EP PR), port of R EcoNeTool's trait model plus a size extension (`trait_foodweb.py`)
 - ⏳ Trait lookup from databases (WoRMS, FishBase/SeaLifeBase) to fill parameters of imported models
-- ⏳ ECOPATH GUI exports (Basic estimates + Diet composition sheets); RData upload (deliberately not supported: unsafe to load)
+- ✅ ECOPATH GUI exports: Basic estimates (or Basic input) + Diet composition, CSV or .xlsx; group types inferred from P/B, Q/B and the diet matrix (`ecopath_import.parse_ecopath_exports`)
+- ⏳ RData upload (deliberately not supported: unsafe to load)
 - ⏳ Live data editor with network regeneration
 - ⏳ All export options
 
@@ -322,7 +323,7 @@ pip install --upgrade -r requirements.txt
 ### High Priority
 
 1. **Full fluxweb implementation**: Port or wrap R's fluxweb package
-2. **Data upload UI**: CSV, Excel and ECOPATH databases done; ECOPATH GUI exports still to do
+2. **Data upload UI**: CSV, Excel, ECOPATH databases and ECOPATH GUI exports done
 3. **Live data editing**: Real-time network updates
 
 ### Medium Priority

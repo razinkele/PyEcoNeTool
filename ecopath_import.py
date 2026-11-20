@@ -124,9 +124,12 @@ def _pick(df: pd.DataFrame, wanted: list[str], table: str) -> pd.DataFrame:
     return df[[lower[w.lower()] for w in wanted]].set_axis(wanted, axis=1)
 
 
-def ecopath_tables_to_food_web(groups: pd.DataFrame, diet: pd.DataFrame):
+def ecopath_tables_to_food_web(groups: pd.DataFrame, diet: pd.DataFrame, *,
+                               biomass_source: str = "the Ecopath input biomass (t/km²)",
+                               where: str = "in the database"):
     """Convert EwE ``EcopathGroup`` + ``EcopathDietComp`` tables into
-    ``(G, info, notes)``. Raises ``ValueError`` (user-readable)."""
+    ``(G, info, notes)``. ``biomass_source`` and ``where`` word the notes for
+    the route the tables came from. Raises ``ValueError`` (user-readable)."""
     g = _pick(groups, ["GroupID", "GroupName", "Type", "Biomass"], GROUP_TABLE).copy()
     extra = {c.lower(): c for c in groups.columns}
     g["Sequence"] = pd.to_numeric(groups[extra["sequence"]], errors="coerce") \
@@ -154,7 +157,7 @@ def ecopath_tables_to_food_web(groups: pd.DataFrame, diet: pd.DataFrame):
     if no_biomass.any():
         dropped = g.loc[no_biomass, "GroupName"].tolist()
         notes.append(
-            f"Left out {len(dropped)} group(s) with no input biomass in the database "
+            f"Left out {len(dropped)} group(s) with no input biomass {where} "
             f"(Ecopath estimates these during mass balance): {', '.join(dropped)}.")
         g = g[~no_biomass].reset_index(drop=True)
     if g.empty:
@@ -198,8 +201,8 @@ def ecopath_tables_to_food_web(groups: pd.DataFrame, diet: pd.DataFrame):
     notes.insert(0,
         "Functional groups were assigned from each group's Ecopath type and name; "
         "body masses, metabolic types and assimilation efficiencies are defaults "
-        "per functional group (edit them in the Data Editor). Biomass is the "
-        "Ecopath input biomass (t/km²).")
+        "per functional group (edit them in the Data Editor). Biomass is "
+        f"{biomass_source}.")
 
     try:
         G, info = build_food_web(M, info)
@@ -290,5 +293,194 @@ def parse_ecopath_db(path, name: str | None = None):
     return ecopath_tables_to_food_web(groups, diet)
 
 
-__all__ = ["parse_ecopath_db", "ecopath_tables_to_food_web", "classify_group",
+# --- EwE GUI exports (CSV / Excel) ---------------------------------------------
+# EwE 6 writes "<model>-Basic estimates.csv" (or "-Basic input.csv") and
+# "<model>-Diet composition.csv": an unnamed group-number column, the group
+# name, then values. Names are often NOT quoted even when they contain the
+# separator, e.g. ``7,Macrozoobenthos omnivoroes (<9,9mm),0,...``, so a plain
+# CSV reader shifts the columns. Rows are therefore split by position: first
+# field = number, last K fields = values (K from the header), the rest = name.
+
+_DIET_CORNER = re.compile(r"prey\s*\\\s*predator", re.IGNORECASE)
+_DIET_SUMMARY = {"import", "sum", "(1 - sum)", "1 - sum"}
+
+
+def _export_rows(src, what: str) -> tuple[list[list[str]], bool]:
+    """Read an export into rows of strings; also return whether numbers use a
+    decimal comma (semicolon-separated CSV)."""
+    import csv
+    from data_import import _XLSX_MAGIC, _decode, _read_bytes, _read_excel, _sniff_sep
+
+    data = _read_bytes(src, what)
+    if data[:4] == _XLSX_MAGIC:
+        df = _read_excel(data, what)
+        return [[str(v).strip() for v in row] for row in df.itertuples(index=False)], False
+    text = _decode(data, what)
+    sep = _sniff_sep(text)
+    rows = [r for r in csv.reader(io.StringIO(text), delimiter=sep) if any(c.strip() for c in r)]
+    if not rows:
+        raise ValueError(f"The {what} file is empty.")
+    width = len(rows[0])
+    fixed = [[c.strip() for c in rows[0]]]
+    for r in rows[1:]:
+        if len(r) > width and len(r) >= 3:
+            extra = len(r) - width
+            r = [r[0], sep.join(r[1:2 + extra])] + r[2 + extra:]
+        fixed.append([c.strip() for c in r])
+    return fixed, sep == ";"
+
+
+def _num(cell: str, decimal_comma: bool):
+    """float, NaN for a blank cell, or None for a non-number."""
+    cell = (cell or "").strip()
+    if cell == "":
+        return np.nan
+    if decimal_comma:
+        cell = cell.replace(",", ".")
+    try:
+        return float(cell)
+    except ValueError:
+        return None
+
+
+def _find_col(header: list[str], test) -> int | None:
+    for i, h in enumerate(header):
+        if test(h.lower()):
+            return i
+    return None
+
+
+def _unit(header_cell: str) -> str:
+    m = re.search(r"\(([^()]*/[^()]*)\)\s*$", header_cell)
+    return m.group(1) if m else ""
+
+
+def _read_basic(src):
+    rows, dc = _export_rows(src, "Basic estimates")
+    header = rows[0]
+    if any(_DIET_CORNER.search(h) for h in header):
+        raise ValueError("The Basic estimates and Diet composition files look swapped: "
+                         "the first file is a diet matrix.")
+    name_i = _find_col(header, lambda h: h == "group name")
+    bt_i = _find_col(header, lambda h: h.startswith("biomass ("))
+    bh_i = _find_col(header, lambda h: h.startswith("biomass in habitat area"))
+    area_i = _find_col(header, lambda h: h.startswith("habitat area"))
+    pb_i = _find_col(header, lambda h: h.startswith("production / biomass"))
+    qb_i = _find_col(header, lambda h: h.startswith("consumption / biomass"))
+    if name_i is None or (bt_i is None and bh_i is None):
+        raise ValueError("This does not look like an EwE Basic estimates (or Basic input) "
+                         "export: it needs a 'Group name' and a 'Biomass' column.")
+    unit = _unit(header[bt_i if bt_i is not None else bh_i])
+    recs = []
+    for r in rows[1:]:
+        r = r + [""] * (len(header) - len(r))
+        gid = _num(r[0], False)
+        if gid is None or not np.isfinite(gid) or not r[name_i]:
+            continue
+
+        def val(i):
+            return np.nan if i is None else _num(r[i], dc)
+
+        if bt_i is not None:
+            b = val(bt_i)
+        else:
+            bh, area = val(bh_i), val(area_i)
+            area = 1.0 if area is None or not np.isfinite(area) else area
+            b = None if bh is None else bh * area
+        pb, qb = val(pb_i), val(qb_i)
+        if b is None or pb is None or qb is None:
+            raise ValueError(f"The Basic estimates file has a non-numeric value in the row "
+                             f"for {r[name_i]!r} (decimals must use '.' in a "
+                             "comma-separated file).")
+        recs.append((int(gid), r[name_i], b, pb, qb))
+    if not recs:
+        raise ValueError("The Basic estimates file has no group rows.")
+    g = pd.DataFrame(recs, columns=["GroupID", "GroupName", "Biomass", "ProdBiom", "ConsBiom"])
+    return g, unit, bt_i is None
+
+
+def _read_diet(src):
+    rows, dc = _export_rows(src, "Diet composition")
+    header = rows[0]
+    if len(header) < 3 or not _DIET_CORNER.search(header[1]):
+        if _find_col(header, lambda h: h == "group name") is not None:
+            raise ValueError("The Basic estimates and Diet composition files look swapped: "
+                             "the second file is a Basic estimates table.")
+        raise ValueError("This does not look like an EwE Diet composition export: its "
+                         "header should start with 'Prey \\ predator'.")
+    pred_cols = []
+    for j, h in enumerate(header[2:], start=2):
+        v = _num(h, False)
+        if v is not None and np.isfinite(v):
+            pred_cols.append((j, int(v)))
+    names, links, bad = {}, [], []
+    for r in rows[1:]:
+        gid = _num(r[0], False) if r else None
+        if gid is None or not np.isfinite(gid) or len(r) < 2:
+            continue
+        if r[1].strip().lower() in _DIET_SUMMARY:
+            continue
+        names[int(gid)] = r[1]
+        for j, pred in pred_cols:
+            if j >= len(r):
+                continue
+            v = _num(r[j], dc)
+            if v is None:
+                bad.append(r[j])
+            elif np.isfinite(v) and v > 0:
+                links.append((pred, int(gid), v))
+    if bad:
+        raise ValueError(f"The Diet composition file has {len(bad)} non-numeric cell(s), e.g. "
+                         f"{bad[0]!r} (decimals must use '.' in a comma-separated file).")
+    return pd.DataFrame(links, columns=["PredID", "PreyID", "Diet"]), names
+
+
+def parse_ecopath_exports(basic_src, diet_src):
+    """Read an EwE GUI export pair -- "Basic estimates" (or "Basic input") and
+    "Diet composition", CSV or .xlsx -- and return ``(G, info, notes)``.
+
+    Groups are joined by their EwE group number. Exports carry no group Type,
+    so it is inferred: a group with a Q/B or with diet entries is a consumer,
+    one with only a P/B a producer, one with neither detritus. Biomass is the
+    overall "Biomass" column (what the EwE database stores); a Basic input
+    export has only "Biomass in habitat area", which is multiplied by the
+    habitat area fraction. Raises ``ValueError`` (user-readable).
+    """
+    g, unit, from_habitat = _read_basic(basic_src)
+    diet, diet_names = _read_diet(diet_src)
+
+    by_id = dict(zip(g["GroupID"], g["GroupName"]))
+    clash = [(i, by_id[i], n) for i, n in diet_names.items() if i in by_id and by_id[i] != n]
+    if clash:
+        i, a, b = clash[0]
+        more = f" (+{len(clash) - 1} more)" if len(clash) > 1 else ""
+        raise ValueError("The two files look like exports of different models: group "
+                         f"{i} is {a!r} in Basic estimates but {b!r} in Diet "
+                         f"composition{more}.")
+    if not set(diet_names) & set(by_id):
+        raise ValueError("The two files look like exports of different models: no group "
+                         "number appears in both.")
+
+    eaters = set(diet["PredID"])
+
+    def has(x):
+        return np.isfinite(x) and x > 0
+
+    g["Type"] = [0 if (gid in eaters or has(qb)) else 1 if has(pb) else 2
+                 for gid, pb, qb in zip(g["GroupID"], g["ProdBiom"], g["ConsBiom"])]
+    g["Sequence"] = g["GroupID"]
+
+    kind = "Basic input" if from_habitat else "Basic estimates"
+    src = f"from the EwE {kind} export" + (f" ({unit})" if unit else "")
+    if from_habitat:
+        src += ", biomass in habitat area × habitat area fraction"
+    G, info, notes = ecopath_tables_to_food_web(
+        g, diet, biomass_source=src, where=f"in the {kind} export")
+    notes.insert(1, "Group types (producer, consumer, detritus) were inferred from the "
+                    "export: a Q/B or diet entries mean consumer, only a P/B producer, "
+                    "neither detritus (exports do not record the EwE type).")
+    return G, info, notes
+
+
+__all__ = ["parse_ecopath_db", "parse_ecopath_exports", "ecopath_tables_to_food_web", "classify_group",
            "ACCEPTED_EXTENSIONS", "FG_DEFAULTS"]
