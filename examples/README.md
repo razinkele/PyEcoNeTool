@@ -34,6 +34,28 @@ This directory contains example food web datasets for testing and learning how t
   - `Template_network.csv` - Adjacency matrix template
   - `Template_info.csv` - Species information template
 
+### 4. Trait-based food webs (`trait_foodweb_*.csv`)
+**Description:** Species with five trait codes each (MS size, FS foraging
+strategy, MB mobility, EP environmental position, PR protection); EconetPy
+infers the feeding links from the codes. Copied verbatim from R EcoNeTool's
+examples.
+- `trait_foodweb_simple.csv` — 5 species
+- `trait_foodweb_marine_invertebrates.csv` — 15 species
+- `trait_foodweb_coastal_ecosystem.csv` — 35 species (Baltic/North Sea coastal)
+
+Load them from the **Trait-based food web** card on the Data Import page, or
+upload your own file in the same format (CSV or .xlsx). Optional columns
+`fg, meanB, bodymasses, met.types, efficiencies` are used when present and
+filled for every species; otherwise they are estimated. Without `meanB`,
+every species gets a placeholder biomass of 1.0 and the Biomass, Energy
+Fluxes and Keystoneness pages show a warning banner.
+
+The **extension** switch (on by default) lets small (MS1–MS2) and
+extra-large (MS7) species eat; R EcoNeTool's model does not, so it leaves
+them without prey. Switch it off to reproduce R exactly. Note: these files
+code plankton as `EP4`, which in the current trait vocabulary means
+endobenthic, so a few plankton feeders still find no prey.
+
 ## How to Use
 
 ### Using CSV files (Python app, EconetPy)
